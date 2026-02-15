@@ -15,6 +15,7 @@ import re
 import secrets
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -1332,23 +1333,28 @@ def finalize_plan(config: dict) -> tuple[bool, Optional[str]]:
                 if result.returncode != 0:
                     raise FileNotFoundError()
             except FileNotFoundError:
-                # Fallback: cast send
+                # Fallback: cast send (retry once on nonce race)
+                cast_cmd = [
+                    "cast",
+                    "send",
+                    sub_contract,
+                    "setPrimaryStablecoin(address)",
+                    usdc_address,
+                    "--private-key",
+                    f"0x{deployer_key}",
+                    "--rpc-url",
+                    rpc_url,
+                ]
                 result = subprocess.run(
-                    [
-                        "cast",
-                        "send",
-                        sub_contract,
-                        "setPrimaryStablecoin(address)",
-                        usdc_address,
-                        "--private-key",
-                        f"0x{deployer_key}",
-                        "--rpc-url",
-                        rpc_url,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
+                    cast_cmd, capture_output=True, text=True, timeout=60,
                 )
+                if result.returncode != 0 and "nonce" in (
+                    result.stderr or ""
+                ).lower():
+                    time.sleep(5)
+                    result = subprocess.run(
+                        cast_cmd, capture_output=True, text=True, timeout=60,
+                    )
                 if result.returncode != 0:
                     return False, f"Failed to set primary stablecoin: {result.stderr or result.stdout}"
 
@@ -1370,24 +1376,27 @@ def finalize_plan(config: dict) -> tuple[bool, Optional[str]]:
         except FileNotFoundError:
             pass
 
-        # Fallback: cast send createPlan
+        # Fallback: cast send createPlan (retry once on nonce race)
+        cast_cmd = [
+            "cast",
+            "send",
+            sub_contract,
+            "createPlan(string,uint256)",
+            plan_name,
+            str(plan_price),
+            "--private-key",
+            f"0x{deployer_key}",
+            "--rpc-url",
+            rpc_url,
+        ]
         result = subprocess.run(
-            [
-                "cast",
-                "send",
-                sub_contract,
-                "createPlan(string,uint256)",
-                plan_name,
-                str(plan_price),
-                "--private-key",
-                f"0x{deployer_key}",
-                "--rpc-url",
-                rpc_url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
+            cast_cmd, capture_output=True, text=True, timeout=60,
         )
+        if result.returncode != 0 and "nonce" in (result.stderr or "").lower():
+            time.sleep(5)
+            result = subprocess.run(
+                cast_cmd, capture_output=True, text=True, timeout=60,
+            )
 
         if result.returncode != 0:
             return False, f"Plan creation failed: {result.stderr or result.stdout}"
