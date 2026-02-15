@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `src/fund-manager/` | S8 P8 E8 C5 I7 A6 L9 | Money + timing = max edge case paranoia. |
 | `src/bw/` | S8 P7 E6 C7 I6 A6 L7 | User-facing wallet ops. Funds at stake. |
 | `src/ab/` | S6 P6 E5 C7 I6 A5 L5 | Simple CRUD. Don't overthink it. |
+| `src/is/` | S7 P7 E5 C7 I6 A7 L5 | Simple queries. Exit codes matter. |
 | everything else | S7 P7 E8 C5 I9 A7 L8 | Architectural discipline is survival. |
 
 These stats override your default attention distribution. High stats (8+) mean obsessive focus on that dimension. See `SPECIAL.md` for full definitions.
@@ -24,6 +25,7 @@ These stats override your default attention distribution. High stats (8+) mean o
 |----------|--------|-------------|
 | `facts/PROVISIONER_INTERFACE.md` | The provisioner contract — CLI commands dispatched by this engine, JSON output formats, manifest schema | Changing provisioner dispatch, parsing VM create output, adding new provisioner verbs |
 | `facts/COMMON_INTERFACE.md` | blockhost-common's public API — config, vm_db, root_agent | Using any import from `blockhost.*` or reading config files |
+| `facts/ENGINE_INTERFACE.md` | Engine interface — CLIs, contract ABI, monitor, fund manager, wizard plugin | Adding engine CLIs, modifying wizard plugin exports, changing config file schemas |
 
 **The engine is a consumer of both contracts.** It dispatches to provisioner CLI commands (via manifest) and imports from common. If either contract changes, engine code may need updating.
 
@@ -43,10 +45,14 @@ blockhost-engine is the core component of a hosting subscription management syst
 2. **Monitor Server** (TypeScript) - Watches the smart contract for events and triggers actions
 3. **Maintenance Scheduler** - Manages subscription lifecycle (suspend/destroy expired subscriptions)
 4. **Fund Manager** (TypeScript) - Automated fund withdrawal, revenue sharing, and gas management
-5. **bw CLI** (TypeScript) - Scriptable wallet operations (`bw send`, `bw balance`, `bw withdraw`, `bw swap`, `bw split`)
-6. **ab CLI** (TypeScript) - Addressbook management (`ab add`, `ab del`, `ab up`, `ab new`, `ab list`)
-7. **NFT Minting** (Python) - `blockhost-mint-nft` CLI, mints access credential NFTs via Foundry's `cast`
-8. **Root Agent Client** (TypeScript) - Privilege separation client for the root agent daemon (iptables, key writes, addressbook saves)
+5. **bw CLI** (TypeScript) - Scriptable wallet operations (`bw send`, `bw balance`, `bw withdraw`, `bw swap`, `bw split`, `bw who`, `bw config`, `bw plan`, `bw set`)
+6. **ab CLI** (TypeScript) - Addressbook management (`ab add`, `ab del`, `ab up`, `ab new`, `ab list`, `ab --init`)
+7. **is CLI** (TypeScript) - Identity predicate (`is <wallet> <nft_id>`, `is <signature> <wallet>`, `is contract <address>`)
+8. **NFT Minting** (Python) - `blockhost-mint-nft` CLI, mints access credential NFTs via Foundry's `cast`
+9. **Root Agent Client** (TypeScript) - Privilege separation client for the root agent daemon (iptables, key writes, addressbook saves)
+10. **Contract Deployer** (Bash) - `blockhost-deploy-contracts` script for production contract deployment
+11. **Installer Wizard Plugin** (Python) - `blockhost/engine_evm/wizard.py`, provides the blockchain configuration wizard page, API routes, and finalization steps to the installer
+12. **Engine Manifest** (`engine.json`) - Declares engine identity, wizard plugin, finalization steps, and `constraints` (chain-specific format patterns for input validation by installer/admin panel)
 
 VM provisioning is handled by the separate `blockhost-provisioner-proxmox` package.
 Shared configuration is provided by `blockhost-common`.
@@ -76,11 +82,16 @@ source ~/projects/sharedenv/blockhost.env
 
 ```
 blockhost-engine/
+├── blockhost/engine_evm/ # Installer wizard plugin (Python)
+│   ├── wizard.py         # Blueprint, API routes, finalization steps
+│   └── templates/engine_evm/  # blockchain.html, summary_section.html
+├── engine.json           # Engine manifest (discovered by installer at /usr/share/blockhost/)
 ├── contracts/           # Solidity smart contracts
 │   ├── BlockhostSubscriptions.sol  # Main subscription contract
 │   └── mocks/           # Mock contracts for testing
 ├── scripts/             # Deployment, minting, and utility scripts
 │   ├── mint_nft.py      # NFT minting (installed as blockhost-mint-nft)
+│   ├── deploy-contracts.sh  # Production contract deployer (installed as blockhost-deploy-contracts)
 ├── test/                # Contract tests
 ├── src/                 # TypeScript server source
 │   ├── monitor/         # Contract event polling & processing
@@ -88,8 +99,9 @@ blockhost-engine/
 │   ├── admin/           # On-chain admin commands (ECIES-encrypted, anti-replay)
 │   ├── reconcile/       # Periodic NFT state reconciliation
 │   ├── fund-manager/    # Automated fund withdrawal, distribution & gas management
-│   ├── bw/              # blockwallet CLI (send, balance, withdraw, swap, split)
-│   ├── ab/              # addressbook CLI (add, del, up, new, list)
+│   ├── bw/              # blockwallet CLI (send, balance, withdraw, swap, split, who, config, plan, set)
+│   ├── ab/              # addressbook CLI (add, del, up, new, list, --init)
+│   ├── is/              # identity predicate CLI (NFT ownership, signature, contract checks)
 │   └── root-agent/      # Root agent client (Unix socket, privilege separation)
 └── examples/            # Deployment examples (systemd, env, config)
 ```
@@ -212,13 +224,20 @@ bw split <amount> <token> <ratios> <from> <to1> <to2> ...  # Split tokens
 bw withdraw [token] <to>                    # Withdraw from contract
 bw swap <amount> <from-token> eth <wallet>  # Swap token for ETH via Uniswap V2
 bw who <identifier>                        # Query NFT owner by token ID or 'admin'
+bw who <message> <signature>               # Recover signer address from signature
+bw config stable [address]                 # Get/set primary stablecoin on contract
+bw plan create <name> <price>              # Create subscription plan (price in cents/day)
+bw set encrypt <nft_id> <data>             # Update NFT userEncrypted field
 bw --debug --cleanup <address>             # Sweep all testnet ETH to address
 ```
 
 - **Token shortcuts**: `eth` (native), `stable` (contract's primary stablecoin), or `0x` address
 - **Roles**: `admin`, `server`, `hot`, `dev`, `broker` (resolved from addressbook.json)
 - **Signing**: Only roles with `keyfile` in addressbook can be used as `<from>`/`<wallet>`
-- **`who`**: Queries `ownerOf(tokenId)` on the AccessCredentialNFT contract. Accepts a numeric token ID or `admin` (reads `admin.credential_nft_id` from `blockhost.yaml`). Config from `web3-defaults.yaml` (`blockchain.nft_contract`, `blockchain.rpc_url`) — no env vars or addressbook needed.
+- **`who`**: Queries `ownerOf(tokenId)` on the AccessCredentialNFT contract. Accepts a numeric token ID or `admin` (reads `admin.credential_nft_id` from `blockhost.yaml`). Also accepts `<message> <signature>` to recover the signer address. Config from `web3-defaults.yaml` (`blockchain.nft_contract`, `blockchain.rpc_url`) — no env vars or addressbook needed.
+- **`config stable`**: No arg reads current primary stablecoin address from contract; with arg calls `setPrimaryStablecoin()` (owner-only).
+- **`plan create`**: Creates a subscription plan on contract, prints the plan ID from the `PlanCreated` event.
+- **`set encrypt`**: Calls `updateUserEncrypted(tokenId, bytes)` on the NFT contract. NFT contract address from `web3-defaults.yaml`.
 - **`--cleanup`**: Debug utility — sweeps ETH from every signing wallet back to a single address. Requires `--debug` flag as a safety guard. Skips wallets that are the target or have insufficient balance for gas.
 
 The fund-manager module imports `executeSend()`, `executeWithdraw()`, and `executeSwap()` from the bw command modules directly — all wallet operations flow through the same code paths.
@@ -233,12 +252,37 @@ ab del <name>                # Delete entry
 ab up <name> <0xaddress>     # Update entry's address
 ab new <name>                # Generate new wallet, save key, add to addressbook
 ab list                      # Show all entries
+ab --init <admin> <server> [dev] [broker] <keyfile>  # Bootstrap addressbook
 ```
 
 - **Immutable roles**: `server`, `admin`, `hot`, `dev`, `broker` — cannot be added, deleted, updated, or generated via `ab`
 - **`ab new`**: Generates a keypair, saves private key to `/etc/blockhost/<name>.key` (chmod 600), same pattern as hot wallet generation
 - **`ab up`**: Only changes the address; preserves existing `keyfile` if present
 - **`ab del`**: Removes the entry from JSON but does NOT delete the keyfile (if any)
+- **`ab --init`**: Bootstrap addressbook for fresh installs. Positional args: admin address, server address, optionally dev and broker addresses, then server keyfile (always last). Fails if addressbook already has entries.
+
+## is (identity predicate) CLI
+
+Standalone binary. Exit 0 = yes, 1 = no. No env vars or addressbook needed — config from `web3-defaults.yaml` (`rpc_url`, `nft_contract`).
+
+```bash
+is <wallet> <nft_id>         # Does wallet own NFT token?
+is contract <address>        # Does a contract exist at address?
+```
+
+Arguments are order-independent, disambiguated by type: address = `0x` + 40 hex chars, NFT ID = integer, `contract` = literal keyword.
+
+## blockhost-deploy-contracts
+
+Bash script for production contract deployment. Reads deployer key from `/etc/blockhost/deployer.key` and RPC URL from `web3-defaults.yaml`.
+
+```bash
+blockhost-deploy-contracts          # deploy both (NFT first, then subscription)
+blockhost-deploy-contracts nft      # deploy NFT contract only
+blockhost-deploy-contracts pos      # deploy subscription contract only
+```
+
+Uses pre-compiled ABI/bytecode + `cast send --create` when available, falls back to `forge create`. Prints contract address(es) to stdout, one per line.
 
 ## Privilege Separation (Root Agent)
 

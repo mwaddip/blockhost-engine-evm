@@ -15,12 +15,15 @@ export const ERC20_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
 ];
 
-// Subscription contract ABI - functions needed by fund-manager
+// Subscription contract ABI - functions needed by fund-manager and bw CLI
 export const SUBSCRIPTION_ABI = [
   "function withdrawFunds(address tokenAddress, address to) external",
   "function getPaymentMethodIds() view returns (uint256[])",
   "function getPaymentMethod(uint256) view returns (address tokenAddress, address pairAddress, address stablecoinAddress, uint8 tokenDecimals, uint8 stablecoinDecimals, bool active)",
   "function getPrimaryStablecoin() view returns (address)",
+  "function setPrimaryStablecoin(address) external",
+  "function createPlan(string, uint256) external returns (uint256)",
+  "event PlanCreated(uint256 indexed planId, string name, uint256 pricePerDayUsdCents)",
   "function getTokenPriceUsdCents(uint256) view returns (uint256)",
   "function owner() view returns (address)",
 ];
