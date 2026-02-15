@@ -1312,6 +1312,12 @@ def finalize_plan(config: dict) -> tuple[bool, Optional[str]]:
         if not deployer_key:
             return False, "Deployer key not available"
 
+        bw_env = {
+            **os.environ,
+            "RPC_URL": rpc_url,
+            "BLOCKHOST_CONTRACT": sub_contract,
+        }
+
         # Set primary stablecoin
         if usdc_address:
             # Try bw config stable CLI
@@ -1321,12 +1327,13 @@ def finalize_plan(config: dict) -> tuple[bool, Optional[str]]:
                     capture_output=True,
                     text=True,
                     timeout=60,
+                    env=bw_env,
                 )
                 if result.returncode != 0:
                     raise FileNotFoundError()
             except FileNotFoundError:
                 # Fallback: cast send
-                subprocess.run(
+                result = subprocess.run(
                     [
                         "cast",
                         "send",
@@ -1342,6 +1349,8 @@ def finalize_plan(config: dict) -> tuple[bool, Optional[str]]:
                     text=True,
                     timeout=60,
                 )
+                if result.returncode != 0:
+                    return False, f"Failed to set primary stablecoin: {result.stderr or result.stdout}"
 
         # Create plan
         try:
@@ -1350,6 +1359,7 @@ def finalize_plan(config: dict) -> tuple[bool, Optional[str]]:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                env=bw_env,
             )
             if result.returncode == 0:
                 config["_step_result_plan"] = {
