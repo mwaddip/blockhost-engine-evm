@@ -983,6 +983,18 @@ def finalize_chain_config(config: dict) -> tuple[bool, Optional[str]]:
         }
 
         web3_path = CONFIG_DIR / "web3-defaults.yaml"
+        if web3_path.exists():
+            import yaml
+
+            existing = yaml.safe_load(web3_path.read_text()) or {}
+            for section, values in web3_config.items():
+                if isinstance(values, dict) and isinstance(
+                    existing.get(section), dict
+                ):
+                    existing[section].update(values)
+                else:
+                    existing[section] = values
+            web3_config = existing
         _write_yaml(web3_path, web3_config)
         _set_blockhost_ownership(web3_path, 0o640)
 
