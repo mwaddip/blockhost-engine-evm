@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `src/bw/` | S8 P7 E6 C7 I6 A6 L7 | User-facing wallet ops. Funds at stake. |
 | `src/ab/` | S6 P6 E5 C7 I6 A5 L5 | Simple CRUD. Don't overthink it. |
 | `src/is/` | S7 P7 E5 C7 I6 A7 L5 | Simple queries. Exit codes matter. |
+| `src/auth-svc/` | S7 P9 E8 C5 I7 A7 L7 | Auth boundary. Must not crash, must not leak. |
 | everything else | S7 P7 E8 C5 I9 A7 L8 | Architectural discipline is survival. |
 
 These stats override your default attention distribution. High stats (8+) mean obsessive focus on that dimension. See `SPECIAL.md` for full definitions.
@@ -53,6 +54,7 @@ blockhost-engine is the core component of a hosting subscription management syst
 10. **Contract Deployer** (Bash) - `blockhost-deploy-contracts` script for production contract deployment
 11. **Installer Wizard Plugin** (Python) - `blockhost/engine_evm/wizard.py`, provides the blockchain configuration wizard page, API routes, and finalization steps to the installer
 12. **Engine Manifest** (`engine.json`) - Declares engine identity, wizard plugin, finalization steps, and `constraints` (chain-specific format patterns for input validation by installer/admin panel)
+13. **Auth Service** (TypeScript→binary) - `web3-auth-svc`, HTTPS signing server compiled to standalone binary via `bun build --compile`. Ships as a template package for VMs.
 
 VM provisioning is handled by the separate `blockhost-provisioner-proxmox` package.
 Shared configuration is provided by `blockhost-common`.
@@ -102,7 +104,10 @@ blockhost-engine/
 │   ├── bw/              # blockwallet CLI (send, balance, withdraw, swap, split, who, config, plan, set)
 │   ├── ab/              # addressbook CLI (add, del, up, new, list, --init)
 │   ├── is/              # identity predicate CLI (NFT ownership, signature, contract checks)
+│   ├── auth-svc/        # Web3 auth signing server (bun-compiled for VMs)
 │   └── root-agent/      # Root agent client (Unix socket, privilege separation)
+├── auth-svc/            # Auth service assets
+│   └── signing-page/    # Signing page HTML (served by auth-svc on VMs)
 └── examples/            # Deployment examples (systemd, env, config)
 ```
 

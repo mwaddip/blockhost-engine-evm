@@ -41,18 +41,21 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 | `src/bw/` | TypeScript | blockwallet CLI for scriptable wallet operations |
 | `src/ab/` | TypeScript | Addressbook CLI for managing wallet entries |
 | `src/is/` | TypeScript | Identity predicate CLI (NFT ownership, signature, contract checks) |
+| `src/auth-svc/` | TypeScript | Web3 auth signing server (compiled to standalone binary for VMs) |
 | `src/root-agent/` | TypeScript | Client for the privileged root agent daemon |
 | `blockhost/engine_evm/` | Python | Installer wizard plugin (blockchain config, finalization steps) |
+| `auth-svc/signing-page/` | HTML | Signing page served by auth-svc |
 | `scripts/` | TS/Python/Bash | Deployment, signup page generation, server init |
 
 ## Prerequisites
 
 - Node.js 18+
 - Python 3.10+
+- Bun (for compiling auth-svc standalone binary)
 - Foundry (forge/cast) for NFT contract deployment
 - `blockhost-common` package (shared configuration)
 - A provisioner package (e.g. `blockhost-provisioner-proxmox`) with a manifest
-- `libpam-web3-tools` >= 0.5.0 (provides NFT contract and signing page)
+- `libpam-web3-tools` >= 0.5.0 (provides NFT contract and CLI tools)
 
 ## Quick Start
 
@@ -297,6 +300,48 @@ Declares engine identity, wizard plugin module, finalization steps, and chain-sp
 
 All patterns are anchored regexes. If `constraints` is absent, consumers skip format validation and let CLIs reject invalid input.
 
+## Auth Service (web3-auth-svc)
+
+The engine ships an HTTPS signing server as a standalone binary for VMs. It is compiled from TypeScript to a self-contained executable using `bun build --compile` — no Node.js runtime needed on VMs.
+
+### How It Works
+
+The auth-svc serves the signing page and handles callback-based signature submission:
+
+- `GET /` — Serves the signing page HTML
+- `GET /auth/pending/:session_id` — Returns session JSON from `/run/libpam-web3/pending/`
+- `POST /auth/callback/:session_id` — Validates signature, writes `.sig` file atomically
+
+### Signature Formats
+
+Content-based detection (same as PAM module):
+- **EVM**: optional `0x` prefix + 130 hex chars (secp256k1)
+- **OPNet**: JSON with `otp`, `machine_id`, `wallet_address` fields
+
+### Template Package
+
+The auth-svc ships as `blockhost-auth-svc_<version>_amd64.deb`, installed on VM templates (not the host):
+
+| File | Purpose |
+|------|---------|
+| `/usr/bin/web3-auth-svc` | Standalone binary |
+| `/usr/share/blockhost/signing-page/index.html` | Signing page HTML |
+| `/lib/systemd/system/web3-auth-svc.service` | Systemd unit |
+| `/usr/lib/tmpfiles.d/web3-auth-svc.conf` | Creates `/run/libpam-web3/pending/` on boot |
+
+### Config
+
+Reads `/etc/web3-auth/config.toml` (written by cloud-init template on VMs):
+
+```toml
+[https]
+port = 8443
+bind = ["::"]
+cert_path = "/etc/libpam-web3/tls/cert.pem"
+key_path = "/etc/libpam-web3/tls/key.pem"
+signing_page_path = "/usr/share/blockhost/signing-page/index.html"
+```
+
 ## Privilege Separation
 
 The monitor service runs as the unprivileged `blockhost` user. Operations that require root (iptables, writing key files to `/etc/blockhost/`, saving addressbook) are delegated to a separate **root agent daemon** (provided by `blockhost-common`) via a Unix socket at `/run/blockhost/root-agent.sock`.
@@ -358,7 +403,10 @@ blockhost-engine/
 │   ├── bw/                    # blockwallet CLI (send, balance, withdraw, swap, split, who, config, plan, set)
 │   ├── ab/                    # addressbook CLI (add, del, up, new, list, --init)
 │   ├── is/                    # identity predicate CLI (NFT ownership, signature, contract)
+│   ├── auth-svc/              # Web3 auth signing server (bun-compiled binary)
 │   └── root-agent/            # Root agent client (privilege separation)
+├── auth-svc/                  # Auth service assets
+│   └── signing-page/          # Signing page HTML (served by auth-svc)
 ├── test/                      # Contract tests
 ├── examples/                  # Deployment examples
 │   ├── blockhost-monitor.service

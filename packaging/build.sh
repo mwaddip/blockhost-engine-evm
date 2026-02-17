@@ -4,16 +4,20 @@ set -e
 
 VERSION="0.1.0"
 PKG_NAME="blockhost-engine_${VERSION}_all"
+TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_amd64"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PKG_DIR="$SCRIPT_DIR/$PKG_NAME"
+TEMPLATE_PKG_DIR="$SCRIPT_DIR/$TEMPLATE_PKG_NAME"
 
 echo "Building blockhost-engine v${VERSION}..."
 
 # Clean up build artifacts on exit (success or failure)
 cleanup() {
   rm -rf "$PKG_DIR"
+  rm -rf "$TEMPLATE_PKG_DIR"
   rm -rf "$SCRIPT_DIR/.forge-build"
+  rm -f "$SCRIPT_DIR/web3-auth-svc"
 }
 trap cleanup EXIT
 
@@ -121,6 +125,30 @@ export NODE_OPTIONS="--dns-result-order=ipv4first${NODE_OPTIONS:+ $NODE_OPTIONS}
 exec /usr/bin/node /usr/share/blockhost/is.js "$@"
 ISEOF
 chmod 755 "$PKG_DIR/usr/bin/is"
+
+# ============================================
+# Compile auth-svc standalone binary with bun
+# ============================================
+echo ""
+echo "Compiling auth-svc with bun..."
+
+AUTH_SVC_BINARY="$SCRIPT_DIR/web3-auth-svc"
+
+if command -v bun &> /dev/null; then
+    echo "Found bun: $(bun --version)"
+    bun build --compile "$PROJECT_DIR/src/auth-svc/index.ts" --outfile "$AUTH_SVC_BINARY"
+
+    if [ ! -f "$AUTH_SVC_BINARY" ]; then
+        echo "ERROR: Failed to compile auth-svc binary"
+        exit 1
+    fi
+
+    AUTH_SVC_SIZE=$(du -h "$AUTH_SVC_BINARY" | cut -f1)
+    echo "auth-svc binary compiled: $AUTH_SVC_SIZE"
+else
+    echo "WARNING: bun not found. Template package (blockhost-auth-svc) will not be built."
+    echo "         Install bun: curl -fsSL https://bun.sh/install | bash"
+fi
 
 # ============================================
 # Compile Solidity contracts with Foundry
@@ -385,4 +413,116 @@ if [ -d "$(dirname "$PACKAGES_HOST_DIR")" ]; then
     cp "$SCRIPT_DIR/${PKG_NAME}.deb" "$PACKAGES_HOST_DIR/"
     echo ""
     echo "Copied to: $PACKAGES_HOST_DIR/${PKG_NAME}.deb"
+fi
+
+# ============================================
+# Build template package: blockhost-auth-svc
+# (installed on VMs, not the host)
+# ============================================
+if [ -f "$AUTH_SVC_BINARY" ]; then
+    echo ""
+    echo "=========================================="
+    echo "Building template package: blockhost-auth-svc v${VERSION}..."
+    echo "=========================================="
+
+    rm -rf "$TEMPLATE_PKG_DIR"
+    mkdir -p "$TEMPLATE_PKG_DIR"/{DEBIAN,usr/bin,usr/share/blockhost/signing-page,lib/systemd/system,usr/lib/tmpfiles.d}
+
+    # Copy compiled binary
+    cp "$AUTH_SVC_BINARY" "$TEMPLATE_PKG_DIR/usr/bin/web3-auth-svc"
+    chmod 755 "$TEMPLATE_PKG_DIR/usr/bin/web3-auth-svc"
+
+    # Copy signing page HTML
+    cp "$PROJECT_DIR/auth-svc/signing-page/index.html" "$TEMPLATE_PKG_DIR/usr/share/blockhost/signing-page/index.html"
+
+    # Create systemd unit
+    cat > "$TEMPLATE_PKG_DIR/lib/systemd/system/web3-auth-svc.service" << 'SVCEOF'
+[Unit]
+Description=Web3 Authentication Signing Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/web3-auth-svc
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    # Create tmpfiles.d config (creates pending dir on boot)
+    cat > "$TEMPLATE_PKG_DIR/usr/lib/tmpfiles.d/web3-auth-svc.conf" << 'TMPEOF'
+d /run/libpam-web3/pending 0755 root root -
+TMPEOF
+
+    # Create DEBIAN/control
+    cat > "$TEMPLATE_PKG_DIR/DEBIAN/control" << EOF
+Package: blockhost-auth-svc
+Version: ${VERSION}
+Section: admin
+Priority: optional
+Architecture: amd64
+Depends:
+Maintainer: Blockhost <admin@blockhost.io>
+Description: Web3 authentication signing server for Blockhost VMs
+ Standalone HTTPS server that serves the web3 signing page and handles
+ callback-based signature submission for PAM authentication.
+ .
+ This package is installed on VM templates, not the Proxmox host.
+ No runtime dependencies — compiled to a standalone binary.
+EOF
+
+    # Create DEBIAN/postinst
+    cat > "$TEMPLATE_PKG_DIR/DEBIAN/postinst" << 'EOF'
+#!/bin/bash
+set -e
+case "$1" in
+    configure)
+        # Create pending directory (also handled by tmpfiles.d on boot)
+        mkdir -p /run/libpam-web3/pending
+        chmod 0755 /run/libpam-web3/pending
+
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemd-tmpfiles --create web3-auth-svc.conf 2>/dev/null || true
+        fi
+        ;;
+esac
+exit 0
+EOF
+
+    # Create DEBIAN/prerm
+    cat > "$TEMPLATE_PKG_DIR/DEBIAN/prerm" << 'EOF'
+#!/bin/bash
+set -e
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop web3-auth-svc 2>/dev/null || true
+            systemctl disable web3-auth-svc 2>/dev/null || true
+        fi
+        ;;
+esac
+exit 0
+EOF
+
+    chmod 755 "$TEMPLATE_PKG_DIR/DEBIAN/postinst" "$TEMPLATE_PKG_DIR/DEBIAN/prerm"
+
+    # Build template .deb
+    dpkg-deb --build "$TEMPLATE_PKG_DIR"
+
+    echo ""
+    echo "=========================================="
+    echo "Template package built: $SCRIPT_DIR/${TEMPLATE_PKG_NAME}.deb"
+    echo "=========================================="
+    echo ""
+    echo "Template package contents:"
+    echo "  /usr/bin/web3-auth-svc                            - Auth server binary ($AUTH_SVC_SIZE)"
+    echo "  /usr/share/blockhost/signing-page/index.html      - Signing page HTML"
+    echo "  /lib/systemd/system/web3-auth-svc.service         - Systemd unit"
+    echo "  /usr/lib/tmpfiles.d/web3-auth-svc.conf            - tmpfiles.d config"
+else
+    echo ""
+    echo "Skipping template package build (bun not available)"
 fi
