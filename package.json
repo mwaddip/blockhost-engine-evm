@@ -1,6 +1,6 @@
 {
   "name": "blockhost-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Subscription management system with EVM smart contracts and monitoring server",
   "bin": {
     "bw": "./src/bw/index.ts",

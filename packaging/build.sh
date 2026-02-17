@@ -2,7 +2,7 @@
 # Build blockhost-engine .deb package
 set -e
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 PKG_NAME="blockhost-engine_${VERSION}_all"
 TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_amd64"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
