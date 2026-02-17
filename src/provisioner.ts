@@ -20,6 +20,7 @@ const LEGACY_COMMANDS: Record<string, string> = {
   "build-template": "blockhost-build-template",
   gc:               "blockhost-vm-gc",
   resume:           "blockhost-vm-resume",
+  "update-gecos":   "blockhost-vm-update-gecos",
 };
 
 interface ProvisionerManifest {

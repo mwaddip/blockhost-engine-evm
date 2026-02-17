@@ -36,7 +36,7 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 | `src/monitor/` | TypeScript | Blockchain event watcher |
 | `src/handlers/` | TypeScript | Event handlers calling VM provisioning |
 | `src/admin/` | TypeScript | On-chain admin commands (port knocking, etc.) |
-| `src/reconcile/` | TypeScript | NFT state reconciliation (periodic health check) |
+| `src/reconcile/` | TypeScript | NFT state reconciliation and ownership transfer detection |
 | `src/fund-manager/` | TypeScript | Automated fund withdrawal, revenue sharing, gas management |
 | `src/bw/` | TypeScript | blockwallet CLI for scriptable wallet operations |
 | `src/ab/` | TypeScript | Addressbook CLI for managing wallet entries |
@@ -142,6 +142,24 @@ VMs use NFT-based web3 authentication instead of passwords or SSH keys:
 4. Signing page displays 6-digit OTP
 5. User SSHs to VM, enters OTP when prompted
 6. PAM module verifies signature against NFT ownership
+
+## Reconciler
+
+The reconciler runs every 5 minutes as part of the monitor polling loop. It ensures local state (`vms.json`) matches on-chain state.
+
+### NFT Minting Reconciliation
+
+Detects and fixes cases where NFTs were minted on-chain but the local database wasn't updated (e.g., due to a crash during provisioning).
+
+### NFT Ownership Transfer Detection
+
+When an NFT is transferred to a new wallet, the reconciler detects the ownership change and updates the VM so the new owner can authenticate:
+
+1. Compares on-chain `ownerOf(tokenId)` with the locally stored `owner_wallet` for each active VM
+2. On transfer: updates `vms.json` and calls the provisioner's `update-gecos` command to update the VM's GECOS field
+3. If the GECOS update fails (VM stopped, guest agent unresponsive), retries on the next cycle
+
+This is the sole mechanism for propagating NFT ownership changes to VMs. The PAM module authenticates against the VM's GECOS field, not the blockchain directly.
 
 ## Configuration Files
 

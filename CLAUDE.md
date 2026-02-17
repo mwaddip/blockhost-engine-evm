@@ -138,6 +138,35 @@ VMs are named based on subscription ID: `blockhost-001`, `blockhost-042`, etc. (
 - Owner-only administrative functions
 - Slippage buffer on payments (configurable, default 1%)
 
+## Reconciler (`src/reconcile/`)
+
+Runs every 5 minutes as part of the monitor polling loop. Performs two categories of checks:
+
+### NFT Minting Reconciliation
+
+Detects discrepancies between on-chain NFT state and local `vms.json`. Fixes partial failures where a VM was created but the NFT mint wasn't recorded locally.
+
+### NFT Ownership Transfer Detection
+
+For every active/suspended VM with a minted NFT, compares `ownerOf(tokenId)` on-chain with the locally stored `owner_wallet`. When a transfer is detected:
+
+1. Updates `owner_wallet` in `vms.json` to the new on-chain owner
+2. Sets `gecos_synced = false` on the VM entry
+3. Calls the provisioner's `update-gecos` command to update the VM's GECOS field (`wallet=ADDRESS,nft=TOKEN_ID`)
+4. On success, sets `gecos_synced = true`
+
+If `update-gecos` fails (VM stopped, guest agent unresponsive), the `gecos_synced = false` flag persists. On the next reconciliation cycle, the ownership matches (local was already updated), but `gecos_synced === false` triggers a retry.
+
+This is the sole mechanism by which VMs learn about NFT ownership changes post-creation. The PAM module on VMs authenticates against the GECOS field, not the blockchain.
+
+### Provisioner Command
+
+```
+getCommand("update-gecos") <vm-name> <wallet-address> --nft-id <token_id>
+```
+
+Exit 0 = GECOS updated. Exit 1 = failed (retried next cycle).
+
 ## Fund Manager
 
 Integrated into the monitor polling loop. Runs two periodic tasks:

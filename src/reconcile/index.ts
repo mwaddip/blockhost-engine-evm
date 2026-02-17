@@ -29,6 +29,7 @@ interface VmEntry {
   nft_token_id?: number;
   nft_minted?: boolean;
   status: string;
+  gecos_synced?: boolean;
 }
 
 interface VmsDatabase {
@@ -149,6 +150,85 @@ print(f"Marked token {${tokenId}} as minted for ${vmName}")
 }
 
 /**
+ * Call the provisioner's update-gecos command to update a VM's GECOS field.
+ * Returns true if the command succeeded (exit 0), false otherwise.
+ */
+function updateGecos(vmName: string, walletAddress: string, nftTokenId: number): boolean {
+  try {
+    const cmd = getCommand("update-gecos");
+    const result = spawnSync(cmd, [vmName, walletAddress, "--nft-id", nftTokenId.toString()], {
+      encoding: "utf8",
+      timeout: 30000,
+      cwd: "/var/lib/blockhost",
+    });
+    if (result.status === 0) {
+      return true;
+    }
+    const errMsg = (result.stderr || result.stdout || "").trim();
+    console.warn(`[RECONCILE] update-gecos failed for ${vmName}: ${errMsg || `exit ${result.status}`}`);
+    return false;
+  } catch (err) {
+    console.warn(`[RECONCILE] update-gecos error for ${vmName}: ${err}`);
+    return false;
+  }
+}
+
+/**
+ * Reconcile NFT ownership: detect transfers and update VM GECOS fields.
+ * For each active/suspended VM with a minted NFT, compare on-chain ownerOf()
+ * with the locally stored owner_wallet. On mismatch, update local state and
+ * call the provisioner's update-gecos command. Failed GECOS updates are
+ * retried on subsequent reconciliation cycles via the gecos_synced flag.
+ */
+async function reconcileOwnership(
+  nftContract: ethers.Contract,
+  localDb: VmsDatabase,
+): Promise<void> {
+  for (const [vmName, vm] of Object.entries(localDb.vms)) {
+    // Only check active/suspended VMs with minted NFTs
+    if (vm.status === "destroyed") continue;
+    if (vm.nft_minted !== true) continue;
+    if (vm.nft_token_id === undefined) continue;
+
+    let onChainOwner: string;
+    try {
+      onChainOwner = await nftContract.ownerOf(vm.nft_token_id);
+    } catch {
+      // Token may have been burned or contract call failed — skip
+      continue;
+    }
+
+    const localOwner = vm.owner_wallet || "";
+    if (onChainOwner.toLowerCase() !== localOwner.toLowerCase()) {
+      // Ownership transfer detected
+      console.log(`[RECONCILE] NFT #${vm.nft_token_id} transferred: ${localOwner} → ${onChainOwner}`);
+
+      vm.owner_wallet = onChainOwner;
+      vm.gecos_synced = false;
+      saveVmsDatabase(localDb);
+
+      if (updateGecos(vm.vm_name, onChainOwner, vm.nft_token_id)) {
+        vm.gecos_synced = true;
+        saveVmsDatabase(localDb);
+        console.log(`[RECONCILE] GECOS updated for ${vmName}`);
+      } else {
+        console.warn(`[RECONCILE] GECOS update failed for ${vmName}, will retry next cycle`);
+      }
+    } else if (vm.gecos_synced === false) {
+      // Previous GECOS update failed — retry
+      console.log(`[RECONCILE] Retrying GECOS update for ${vmName}`);
+      if (updateGecos(vm.vm_name, vm.owner_wallet, vm.nft_token_id)) {
+        vm.gecos_synced = true;
+        saveVmsDatabase(localDb);
+        console.log(`[RECONCILE] GECOS retry succeeded for ${vmName}`);
+      } else {
+        console.warn(`[RECONCILE] GECOS retry failed for ${vmName}, will try again next cycle`);
+      }
+    }
+  }
+}
+
+/**
  * Run the NFT reconciliation check
  */
 export async function runReconciliation(provider: ethers.Provider): Promise<void> {
@@ -254,6 +334,9 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
         }
       }
     }
+
+    // Reconcile NFT ownership transfers and retry failed GECOS updates
+    await reconcileOwnership(nftContract, localDb);
 
   } catch (err) {
     console.error(`[RECONCILE] Error during reconciliation: ${err}`);
