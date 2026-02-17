@@ -17,6 +17,7 @@ import { delCommand } from "./commands/del";
 import { upCommand } from "./commands/up";
 import { newCommand } from "./commands/new";
 import { listCommand } from "./commands/list";
+import { initCommand } from "./commands/init";
 
 export const IMMUTABLE_ROLES = new Set(["server", "admin", "hot", "dev", "broker"]);
 
@@ -29,17 +30,27 @@ function printUsage(): void {
   console.log("  ab up <name> <0xaddress>     Update entry's address");
   console.log("  ab new <name>                Generate new wallet and add to addressbook");
   console.log("  ab list                      Show all entries");
+  console.log("  ab --init <admin> <server> [dev] [broker] <keyfile>");
+  console.log("                               Bootstrap addressbook (fresh install only)");
   console.log("");
   console.log("Reserved roles (immutable): server, admin, hot, dev, broker");
 }
 
 async function main(): Promise<void> {
-  const [command, ...args] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
 
-  if (!command || command === "--help" || command === "-h") {
+  if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h") {
     printUsage();
     process.exit(0);
   }
+
+  // --init flag: bootstrap addressbook (before switch, same pattern as bw --cleanup)
+  if (argv[0] === "--init") {
+    await initCommand(argv.slice(1));
+    return;
+  }
+
+  const [command, ...args] = argv;
 
   switch (command) {
     case "add":

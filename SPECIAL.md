@@ -83,6 +83,9 @@ src/bw/                   S8  P7  E6  C7  I6  A6  L7
 
 src/ab/                   S6  P6  E5  C7  I6  A5  L5
   Simple CRUD on a JSON file. Don't overthink it.
+
+src/is/                   S7  P7  E5  C7  I6  A7  L5
+  Simple queries. Exit codes matter.
 ```
 
 ### blockhost-provisioner-proxmox

@@ -27,6 +27,9 @@ import { withdrawCommand } from "./commands/withdraw";
 import { swapCommand } from "./commands/swap";
 import { cleanupCommand } from "./commands/cleanup";
 import { whoCommand } from "./commands/who";
+import { configCommand } from "./commands/config";
+import { planCommand } from "./commands/plan";
+import { setCommand } from "./commands/set";
 
 function printUsage(): void {
   console.log("bw (blockwallet) — scriptable wallet operations for blockhost");
@@ -39,6 +42,10 @@ function printUsage(): void {
   console.log("  bw withdraw [token] <to>                   Withdraw from contract");
   console.log("  bw swap <amount> <from-token> eth <wallet> Swap token for ETH");
   console.log("  bw who <identifier>                        Query NFT owner");
+  console.log("  bw who <message> <signature>               Recover signer address");
+  console.log("  bw config stable [address]                 Get/set primary stablecoin");
+  console.log("  bw plan create <name> <price>              Create subscription plan");
+  console.log("  bw set encrypt <nft_id> <data>             Update NFT encrypted data");
   console.log("");
   console.log("Debug:");
   console.log("  bw --debug --cleanup <address>             Sweep ETH to address");
@@ -104,6 +111,15 @@ async function main(): Promise<void> {
       break;
     case "swap":
       await swapCommand(args, book, provider, contract);
+      break;
+    case "config":
+      await configCommand(args, book, provider, contract);
+      break;
+    case "plan":
+      await planCommand(args, book, provider, contract);
+      break;
+    case "set":
+      await setCommand(args, book, provider);
       break;
     default:
       console.error(`Unknown command: ${command}`);

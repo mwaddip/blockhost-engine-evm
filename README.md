@@ -40,7 +40,9 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 | `src/fund-manager/` | TypeScript | Automated fund withdrawal, revenue sharing, gas management |
 | `src/bw/` | TypeScript | blockwallet CLI for scriptable wallet operations |
 | `src/ab/` | TypeScript | Addressbook CLI for managing wallet entries |
+| `src/is/` | TypeScript | Identity predicate CLI (NFT ownership, signature, contract checks) |
 | `src/root-agent/` | TypeScript | Client for the privileged root agent daemon |
+| `blockhost/engine_evm/` | Python | Installer wizard plugin (blockchain config, finalization steps) |
 | `scripts/` | TS/Python/Bash | Deployment, signup page generation, server init |
 
 ## Prerequisites
@@ -171,6 +173,7 @@ This is the sole mechanism for propagating NFT ownership changes to VMs. The PAM
 | `addressbook.json` | `/etc/blockhost/` | Role-to-wallet mapping (admin, server, hot, dev, broker) |
 | `revenue-share.json` | `/etc/blockhost/` | Revenue sharing configuration (dev/broker splits) |
 | `vms.json` | `/var/lib/blockhost/` | VM database (IPs, VMIDs, reserved NFT tokens) |
+| `engine.json` | `/usr/share/blockhost/` | Engine manifest (identity, wizard plugin, constraints) |
 
 ## Fund Manager
 
@@ -220,6 +223,17 @@ Revenue sharing is configured in `/etc/blockhost/revenue-share.json`:
 }
 ```
 
+## is (identity predicate) CLI
+
+Standalone binary for yes/no identity questions. Exit 0 = yes, 1 = no. No env vars or addressbook needed — config from `web3-defaults.yaml`.
+
+```bash
+is <wallet> <nft_id>         # Does wallet own NFT token?
+is contract <address>        # Does a contract exist at address?
+```
+
+Arguments are order-independent, disambiguated by type (address = `0x` + 40 hex, NFT ID = integer, `contract` = keyword). Signature verification is handled by `bw who <message> <signature>`.
+
 ## bw (blockwallet) CLI
 
 Standalone CLI for scriptable wallet operations. Uses the same `RPC_URL` and `BLOCKHOST_CONTRACT` env vars as the monitor.
@@ -230,11 +244,20 @@ bw balance <role> [token]                   # Show wallet balances
 bw split <amount> <token> <ratios> <from> <to1> <to2> ...  # Split tokens
 bw withdraw [token] <to>                    # Withdraw from contract
 bw swap <amount> <from-token> eth <wallet>  # Swap token for ETH via Uniswap V2
+bw who <identifier>                        # Query NFT owner by token ID or 'admin'
+bw who <message> <signature>               # Recover signer address from signature
+bw config stable [address]                 # Get/set primary stablecoin
+bw plan create <name> <price>              # Create subscription plan
+bw set encrypt <nft_id> <data>             # Update NFT encrypted data
 ```
 
 - **Token shortcuts**: `eth` (native), `stable` (contract's primary stablecoin), or `0x` address
 - **Roles**: `admin`, `server`, `hot`, `dev`, `broker` (resolved from addressbook.json)
 - **Signing**: Only roles with `keyfile` in addressbook can be used as `<from>`/`<wallet>`
+- **`bw who`**: Queries NFT ownership or recovers signer address. Config from `web3-defaults.yaml` — no env vars or addressbook needed.
+- **`bw config stable`**: No arg reads current primary stablecoin; with arg sets it (owner-only).
+- **`bw plan create`**: Creates a subscription plan, prints the plan ID.
+- **`bw set encrypt`**: Updates the `userEncrypted` field on an NFT. NFT contract from `web3-defaults.yaml`.
 
 The fund-manager module imports `executeSend()`, `executeWithdraw()`, and `executeSwap()` from the bw command modules directly — all wallet operations flow through the same code paths.
 
@@ -248,12 +271,31 @@ ab del <name>                # Delete entry
 ab up <name> <0xaddress>     # Update entry's address
 ab new <name>                # Generate new wallet, save key, add to addressbook
 ab list                      # Show all entries
+ab --init <admin> <server> [dev] [broker] <keyfile>  # Bootstrap addressbook
 ```
 
 - **Immutable roles**: `server`, `admin`, `hot`, `dev`, `broker` — cannot be added, deleted, updated, or generated via `ab`
 - **`ab new`**: Generates a keypair, saves private key to `/etc/blockhost/<name>.key` (chmod 600), same pattern as hot wallet generation
 - **`ab up`**: Only changes the address; preserves existing `keyfile` if present
 - **`ab del`**: Removes the entry from JSON but does NOT delete the keyfile (if any)
+- **`ab --init`**: Bootstrap addressbook with admin, server, and optionally dev/broker addresses. Keyfile (last arg) marks the end of input. Only works on an empty addressbook (fresh install safety).
+
+## Engine Manifest (`engine.json`)
+
+Declares engine identity, wizard plugin module, finalization steps, and chain-specific `constraints` used by consumers (installer, admin panel) for input validation and UI rendering.
+
+### `constraints`
+
+| Field | Description | EVM value |
+|-------|-------------|-----------|
+| `address_pattern` | Regex for valid addresses | `^0x[0-9a-fA-F]{40}$` |
+| `signature_pattern` | Regex for valid signatures | `^0x[0-9a-fA-F]{130}$` |
+| `native_token` | Native currency keyword for CLIs | `eth` |
+| `native_token_label` | Display label for native currency | `ETH` |
+| `token_pattern` | Regex for valid token addresses | `^0x[0-9a-fA-F]{40}$` |
+| `address_placeholder` | Placeholder for address inputs | `0x...` |
+
+All patterns are anchored regexes. If `constraints` is absent, consumers skip format validation and let CLIs reject invalid input.
 
 ## Privilege Separation
 
@@ -298,18 +340,24 @@ blockhost-engine/
 │   ├── BlockhostSubscriptions.sol
 │   └── mocks/                 # Test mocks
 ├── scripts/                   # Deployment & utility scripts
-│   ├── deploy.ts              # Contract deployment
+│   ├── deploy.ts              # Contract deployment (Hardhat, development)
+│   ├── deploy-contracts.sh    # Contract deployment (production, no Hardhat)
 │   ├── init-server.sh         # Server initialization
 │   ├── generate-signup-page.py
 │   └── signup-template.html
+├── blockhost/engine_evm/       # Installer wizard plugin
+│   ├── wizard.py              # Blueprint, API routes, finalization steps
+│   └── templates/engine_evm/  # Wizard page and summary templates
+├── engine.json                # Engine manifest (identity, wizard plugin, constraints)
 ├── src/                       # TypeScript source
 │   ├── monitor/               # Blockchain event monitor
 │   ├── handlers/              # Event handlers
 │   ├── admin/                 # On-chain admin command processing
 │   ├── reconcile/             # NFT state reconciliation
 │   ├── fund-manager/          # Automated fund withdrawal & distribution
-│   ├── bw/                    # blockwallet CLI (send, balance, withdraw, swap, split)
-│   ├── ab/                    # addressbook CLI (add, del, up, new, list)
+│   ├── bw/                    # blockwallet CLI (send, balance, withdraw, swap, split, who, config, plan, set)
+│   ├── ab/                    # addressbook CLI (add, del, up, new, list, --init)
+│   ├── is/                    # identity predicate CLI (NFT ownership, signature, contract)
 │   └── root-agent/            # Root agent client (privilege separation)
 ├── test/                      # Contract tests
 ├── examples/                  # Deployment examples

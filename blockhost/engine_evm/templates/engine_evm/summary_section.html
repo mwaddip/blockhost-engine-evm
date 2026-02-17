@@ -1,0 +1,42 @@
+<!-- EVM Engine Summary Section (rendered by engine plugin) -->
+<div class="summary-section">
+    <h3>Blockchain (EVM)</h3>
+    <div class="summary-item">
+        <span class="summary-label">Network</span>
+        <span class="summary-value">{{ engine_summary.chain_name }} ({{ engine_summary.chain_id }})</span>
+    </div>
+    <div class="summary-item">
+        <span class="summary-label">RPC URL</span>
+        <span class="summary-value" style="font-size: 0.75rem;">{{ engine_summary.rpc_url }}</span>
+    </div>
+    {% if engine_summary.deployer_address %}
+    <div class="summary-item">
+        <span class="summary-label">Deployer</span>
+        <span class="summary-value" style="font-size: 0.75rem;">{{ engine_summary.deployer_address }}</span>
+    </div>
+    {% endif %}
+    <div class="summary-item">
+        <span class="summary-label">Contracts</span>
+        <span class="summary-value">{{ 'Pre-deployed' if engine_summary.contract_mode == 'existing' else 'Deploy during setup' }}</span>
+    </div>
+    {% if engine_summary.nft_contract %}
+    <div class="summary-item">
+        <span class="summary-label">NFT Contract</span>
+        <span class="summary-value" style="font-size: 0.75rem;">{{ engine_summary.nft_contract }}</span>
+    </div>
+    {% endif %}
+    {% if engine_summary.subscription_contract %}
+    <div class="summary-item">
+        <span class="summary-label">Subscription Contract</span>
+        <span class="summary-value" style="font-size: 0.75rem;">{{ engine_summary.subscription_contract }}</span>
+    </div>
+    {% endif %}
+    <div class="summary-item">
+        <span class="summary-label">Plan</span>
+        <span class="summary-value">{{ engine_summary.plan_name }} ({{ engine_summary.plan_price_cents }} cents/day)</span>
+    </div>
+    <div class="summary-item">
+        <span class="summary-label">Revenue Sharing</span>
+        <span class="summary-value">{{ 'Enabled' if engine_summary.revenue_share_enabled else 'Disabled' }}</span>
+    </div>
+</div>
