@@ -553,6 +553,57 @@ def get_summary_template() -> str:
     return "engine_evm/summary_section.html"
 
 
+def get_wallet_template() -> str:
+    """Return path to EVM wallet connect template."""
+    return "engine_evm/wallet.html"
+
+
+def validate_signature(sig: str) -> bool:
+    """Validate EVM signature format (0x-prefixed hex)."""
+    return bool(sig and sig.startswith("0x"))
+
+
+def decrypt_config(signature: str, ciphertext: str) -> dict:
+    """Decrypt config backup using pam_web3_tool.
+
+    Args:
+        signature: Admin wallet signature (0x-prefixed hex)
+        ciphertext: Encrypted config file content (0x-prefixed hex)
+
+    Returns:
+        Parsed config dict
+
+    Raises:
+        ValueError: On decryption failure or invalid content
+        FileNotFoundError: If pam_web3_tool not installed
+    """
+    import yaml
+
+    if not ciphertext.startswith("0x"):
+        raise ValueError("Invalid config file (expected hex ciphertext)")
+
+    result = subprocess.run(
+        [
+            "pam_web3_tool",
+            "decrypt-symmetric",
+            "--signature",
+            signature,
+            "--ciphertext",
+            ciphertext,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise ValueError("Decryption failed — wrong wallet or corrupted file")
+
+    config = yaml.safe_load(result.stdout)
+    if not isinstance(config, dict):
+        raise ValueError("Decrypted content is not valid config")
+    return config
+
+
 def get_progress_steps_meta() -> list[dict]:
     """Return step metadata for the progress UI."""
     pre = [
