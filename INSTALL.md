@@ -60,11 +60,8 @@ foundryup
 /root/.foundry/bin/cast --version
 ```
 
-**libpam-web3 (for NFT ECIES encryption):**
-```bash
-# Install the libpam-web3-tools package (provides pam_web3_tool)
-dpkg -i /path/to/libpam-web3-tools_*.deb
-```
+**nft_tool** is included in the blockhost-engine package (no separate install needed).
+Dependencies `python3-pycryptodome` and `python3-ecdsa` are pulled in automatically.
 
 ### 2. Install Blockhost Packages
 

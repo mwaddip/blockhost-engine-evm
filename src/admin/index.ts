@@ -31,9 +31,9 @@ export function tryDecryptCommand(txData: string): string | null {
   }
 
   try {
-    // Use pam_web3_tool for ECIES decryption
+    // Use nft_tool for ECIES decryption
     const result = execFileSync(
-      "pam_web3_tool",
+      "nft_tool",
       ["decrypt", "--private-key-file", privateKeyPath, "--ciphertext", ciphertext],
       { encoding: "utf8", timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
     );

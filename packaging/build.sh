@@ -3,8 +3,8 @@
 set -e
 
 VERSION="0.2.0"
-PKG_NAME="blockhost-engine_${VERSION}_amd64"
-TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_amd64"
+PKG_NAME="blockhost-engine_${VERSION}_all"
+TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_all"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PKG_DIR="$SCRIPT_DIR/$PKG_NAME"
@@ -246,9 +246,9 @@ Package: blockhost-engine
 Version: ${VERSION}
 Section: admin
 Priority: optional
-Architecture: amd64
-Depends: blockhost-common (>= 0.1.0), nodejs (>= 18), python3 (>= 3.10)
-Provides: pam-web3-tool
+Architecture: all
+Depends: blockhost-common (>= 0.1.0), nodejs (>= 18), python3 (>= 3.10), python3-pycryptodome (>= 3.15), python3-ecdsa
+Provides: nft-tool
 Conflicts: libpam-web3-tools
 Recommends: blockhost-provisioner-proxmox (>= 0.1.0) | blockhost-provisioner-libvirt (>= 0.1.0)
 Maintainer: Blockhost <admin@blockhost.io>
@@ -335,17 +335,9 @@ cp "$PROJECT_DIR/scripts/generate-signup-page.py" "$PKG_DIR/usr/bin/blockhost-ge
 cp "$PROJECT_DIR/scripts/deploy-contracts.sh" "$PKG_DIR/usr/bin/blockhost-deploy-contracts"
 chmod 755 "$PKG_DIR/usr/bin/"*
 
-# pam_web3_tool binary (previously from libpam-web3-tools package)
-if [ -n "$PAM_WEB3_TOOL_BIN" ] && [ -f "$PAM_WEB3_TOOL_BIN" ]; then
-    cp "$PAM_WEB3_TOOL_BIN" "$PKG_DIR/usr/bin/pam_web3_tool"
-    chmod 755 "$PKG_DIR/usr/bin/pam_web3_tool"
-    echo "Included pam_web3_tool from: $PAM_WEB3_TOOL_BIN"
-else
-    echo "WARNING: pam_web3_tool binary not found at \$PAM_WEB3_TOOL_BIN"
-    echo "         Set PAM_WEB3_TOOL_BIN to the path of the pre-built binary"
-    echo "         (e.g., ../libpam-web3/target/release/pam_web3_tool)"
-    exit 1
-fi
+# nft_tool (Python crypto CLI, replaces deprecated pam_web3_tool Rust binary)
+cp "$PROJECT_DIR/scripts/nft_tool.py" "$PKG_DIR/usr/bin/nft_tool"
+chmod 755 "$PKG_DIR/usr/bin/nft_tool"
 
 # Install mint_nft as importable Python module (used by wizard finalization)
 mkdir -p "$PKG_DIR/usr/lib/python3/dist-packages/blockhost"
@@ -427,7 +419,7 @@ echo "  /usr/share/blockhost/engine.json - Engine manifest"
 echo "  /usr/bin/blockhost-init         - Server initialization script"
 echo "  /usr/bin/blockhost-generate-signup - Signup page generator"
 echo "  /opt/blockhost/                 - Deployment scripts (require npm install)"
-echo "  /usr/bin/pam_web3_tool           - Crypto tool (keypair gen, encrypt/decrypt)"
+echo "  /usr/bin/nft_tool                - NFT & crypto tool (keypair gen, encrypt/decrypt)"
 echo "  /usr/share/blockhost/contracts/BlockhostSubscriptions.json - Subscription contract artifact"
 echo "  /usr/share/blockhost/contracts/AccessCredentialNFT.json - NFT contract artifact"
 echo "  /lib/systemd/system/            - Systemd service unit"

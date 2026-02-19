@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - blockhost-common package (provides /etc/blockhost, /var/lib/blockhost)
-#   - libpam-web3-tools package (provides pam_web3_tool)
+#   - blockhost-engine package (provides nft_tool)
 #   - foundry (provides cast for wallet address derivation)
 
 set -euo pipefail
@@ -81,9 +81,9 @@ if [[ ! -d "${DATA_DIR}" ]]; then
     exit 1
 fi
 
-# Check pam_web3_tool is available
-if ! command -v pam_web3_tool &> /dev/null; then
-    echo "Error: pam_web3_tool not found. Install libpam-web3-tools package."
+# Check nft_tool is available
+if ! command -v nft_tool &> /dev/null; then
+    echo "Error: nft_tool not found. Install blockhost-engine package."
     exit 1
 fi
 
@@ -109,7 +109,7 @@ if [[ -f "${SERVER_KEY_FILE}" ]]; then
 
         # Still show the public key
         SERVER_PRIVATE_KEY=$(cat "${SERVER_KEY_FILE}")
-        SERVER_PUBLIC_KEY=$(pam_web3_tool derive-pubkey --private-key "${SERVER_PRIVATE_KEY}" | grep -oP '(?<=hex\): ).*')
+        SERVER_PUBLIC_KEY=$(nft_tool derive-pubkey --private-key "${SERVER_PRIVATE_KEY}" | grep -oP '(?<=hex\): ).*')
 
         # Show deployer address if it exists
         if [[ -f "${DEPLOYER_KEY_FILE}" ]]; then
@@ -136,7 +136,7 @@ fi
 
 # Generate server keypair
 echo "Generating server secp256k1 keypair..."
-SERVER_PRIVATE_KEY=$(pam_web3_tool generate-keypair | grep -oP '(?<=hex\): ).*')
+SERVER_PRIVATE_KEY=$(nft_tool generate-keypair | grep -oP '(?<=hex\): ).*')
 
 # Save server private key (restricted permissions)
 echo "${SERVER_PRIVATE_KEY}" > "${SERVER_KEY_FILE}"
@@ -144,7 +144,7 @@ chmod 600 "${SERVER_KEY_FILE}"
 echo "Server private key saved to: ${SERVER_KEY_FILE}"
 
 # Derive server public key
-SERVER_PUBLIC_KEY=$(pam_web3_tool derive-pubkey --private-key "${SERVER_PRIVATE_KEY}" | grep -oP '(?<=hex\): ).*')
+SERVER_PUBLIC_KEY=$(nft_tool derive-pubkey --private-key "${SERVER_PRIVATE_KEY}" | grep -oP '(?<=hex\): ).*')
 
 # Generate or use provided deployer keypair
 if [[ -n "${DEPLOYER_KEY}" ]]; then
@@ -153,7 +153,7 @@ if [[ -n "${DEPLOYER_KEY}" ]]; then
     DEPLOYER_PRIVATE_KEY="${DEPLOYER_KEY#0x}"
 else
     echo "Generating deployer keypair..."
-    DEPLOYER_PRIVATE_KEY=$(pam_web3_tool generate-keypair | grep -oP '(?<=hex\): ).*')
+    DEPLOYER_PRIVATE_KEY=$(nft_tool generate-keypair | grep -oP '(?<=hex\): ).*')
 fi
 
 # Save deployer private key (restricted permissions)

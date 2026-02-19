@@ -97,7 +97,7 @@ function decryptUserSignature(userEncrypted: string): string | null {
   // Otherwise, try to decrypt with server's private key
   try {
     const result = execFileSync(
-      "pam_web3_tool",
+      "nft_tool",
       ["decrypt", "--private-key-file", SERVER_PRIVATE_KEY_FILE, "--ciphertext", userEncrypted],
       { encoding: "utf8", timeout: 10000 }
     );
@@ -181,7 +181,7 @@ function encryptConnectionDetails(
   });
 
   try {
-    const result = execFileSync("pam_web3_tool", [
+    const result = execFileSync("nft_tool", [
       "encrypt-symmetric",
       "--signature", userSignature,
       "--plaintext", connectionDetails,
