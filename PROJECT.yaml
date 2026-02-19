@@ -103,14 +103,6 @@ dependencies:
       configured for NFT-based web3 SSH authentication.
       Installed as a separate .deb package.
 
-  libpam-web3-tools:
-    package: libpam-web3-tools
-    version: ">= 0.5.0"
-    description: |
-      Provides AccessCredentialNFT contract source and ABI for deployment,
-      plus signing page generator for per-NFT authentication pages.
-      Contract at: /usr/share/libpam-web3-tools/contracts/
-      Signing page generator at: /usr/share/libpam-web3-tools/signing-page/
 
 # Environment setup
 environment:

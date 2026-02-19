@@ -169,14 +169,8 @@ if command -v forge &> /dev/null; then
     # Copy contract sources
     cp "$PROJECT_DIR/contracts/BlockhostSubscriptions.sol" "$FORGE_BUILD_DIR/src/"
 
-    # Copy NFT contract source from libpam-web3
-    if [ -n "$LIBPAM_WEB3_DIR" ] && [ -f "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" ]; then
-        cp "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" "$FORGE_BUILD_DIR/src/"
-        echo "Included AccessCredentialNFT.sol from libpam-web3"
-    else
-        echo "WARNING: AccessCredentialNFT.sol not found"
-        echo "         Set LIBPAM_WEB3_DIR to the libpam-web3 submodule root"
-    fi
+    # Copy NFT contract source
+    cp "$PROJECT_DIR/contracts/src/AccessCredentialNFT.sol" "$FORGE_BUILD_DIR/src/"
 
     # Create foundry.toml
     cat > "$FORGE_BUILD_DIR/foundry.toml" << 'TOML'
@@ -371,9 +365,7 @@ cp "$PROJECT_DIR/contracts/BlockhostSubscriptions.sol" "$PKG_DIR/opt/blockhost/c
 cp "$PROJECT_DIR/contracts/mocks/"*.sol "$PKG_DIR/opt/blockhost/contracts/mocks/"
 
 # NFT contract source (for reference/redeployment)
-if [ -n "$LIBPAM_WEB3_DIR" ] && [ -f "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" ]; then
-    cp "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" "$PKG_DIR/usr/share/blockhost/contracts/"
-fi
+cp "$PROJECT_DIR/contracts/src/AccessCredentialNFT.sol" "$PKG_DIR/usr/share/blockhost/contracts/"
 
 # Static resources
 cp "$PROJECT_DIR/scripts/signup-template.html" "$PKG_DIR/usr/share/blockhost/"

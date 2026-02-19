@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as yaml from "js-yaml";
 
 // Paths
-const NFT_CONTRACT_PATH = "/usr/share/libpam-web3-tools/contracts/AccessCredentialNFT.sol";
+const NFT_CONTRACT_PATH = "/usr/share/blockhost/contracts/AccessCredentialNFT.sol";
 const WEB3_CONFIG_PATH = "/etc/blockhost/web3-defaults.yaml";
 
 interface Web3Config {
@@ -43,7 +43,7 @@ async function deployNFTContract(
   if (!fs.existsSync(NFT_CONTRACT_PATH)) {
     throw new Error(
       `NFT contract not found at ${NFT_CONTRACT_PATH}. ` +
-      `Install libpam-web3-tools >= 0.5.0`
+      `Ensure blockhost-engine is installed`
     );
   }
 
@@ -63,7 +63,7 @@ async function deployNFTContract(
   // For simplicity, we'll compile and deploy using forge create with --root pointing
   // to a temp directory, or use the pre-compiled ABI/bytecode if available
 
-  const abiPath = "/usr/share/libpam-web3-tools/contracts/AccessCredentialNFT.abi.json";
+  const abiPath = "/usr/share/blockhost/contracts/AccessCredentialNFT.json";
 
   if (fs.existsSync(abiPath)) {
     // Use pre-compiled bytecode from the package
