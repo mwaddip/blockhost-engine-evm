@@ -604,6 +604,44 @@ def decrypt_config(signature: str, ciphertext: str) -> dict:
     return config
 
 
+def encrypt_config(signature: str, plaintext: str) -> str:
+    """Encrypt config for backup download using pam_web3_tool.
+
+    Args:
+        signature: Admin wallet signature (0x-prefixed hex)
+        plaintext: YAML-serialized config string
+
+    Returns:
+        Hex ciphertext string (0x-prefixed)
+
+    Raises:
+        ValueError: On encryption failure
+        FileNotFoundError: If pam_web3_tool not installed
+    """
+    result = subprocess.run(
+        [
+            "pam_web3_tool",
+            "encrypt-symmetric",
+            "--signature",
+            signature,
+            "--plaintext",
+            plaintext,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"Encryption failed: {result.stderr}")
+
+    # Parse ciphertext from output (format: "Ciphertext: 0x...")
+    for line in result.stdout.split("\n"):
+        if "Ciphertext" in line and "0x" in line:
+            return line[line.index("0x") :].strip()
+
+    raise ValueError("Could not parse encrypted output")
+
+
 def get_progress_steps_meta() -> list[dict]:
     """Return step metadata for the progress UI."""
     pre = [

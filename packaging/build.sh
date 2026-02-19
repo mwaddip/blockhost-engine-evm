@@ -3,7 +3,7 @@
 set -e
 
 VERSION="0.2.0"
-PKG_NAME="blockhost-engine_${VERSION}_all"
+PKG_NAME="blockhost-engine_${VERSION}_amd64"
 TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_amd64"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -166,8 +166,17 @@ if command -v forge &> /dev/null; then
     rm -rf "$FORGE_BUILD_DIR"
     mkdir -p "$FORGE_BUILD_DIR/src"
 
-    # Copy contract source
+    # Copy contract sources
     cp "$PROJECT_DIR/contracts/BlockhostSubscriptions.sol" "$FORGE_BUILD_DIR/src/"
+
+    # Copy NFT contract source from libpam-web3
+    if [ -n "$LIBPAM_WEB3_DIR" ] && [ -f "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" ]; then
+        cp "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" "$FORGE_BUILD_DIR/src/"
+        echo "Included AccessCredentialNFT.sol from libpam-web3"
+    else
+        echo "WARNING: AccessCredentialNFT.sol not found"
+        echo "         Set LIBPAM_WEB3_DIR to the libpam-web3 submodule root"
+    fi
 
     # Create foundry.toml
     cat > "$FORGE_BUILD_DIR/foundry.toml" << 'TOML'
@@ -201,7 +210,7 @@ TOML
         exit 1
     }
 
-    # Check for compiled artifact
+    # Check for compiled artifacts
     COMPILED_ARTIFACT="$FORGE_BUILD_DIR/out/BlockhostSubscriptions.sol/BlockhostSubscriptions.json"
     if [ -f "$COMPILED_ARTIFACT" ]; then
         echo "Contract compiled successfully: $COMPILED_ARTIFACT"
@@ -210,6 +219,13 @@ TOML
     else
         echo "Warning: Compiled artifact not found at expected path"
         ls -la "$FORGE_BUILD_DIR/out/" 2>/dev/null || true
+    fi
+
+    # Copy NFT contract artifact if compiled
+    NFT_ARTIFACT="$FORGE_BUILD_DIR/out/AccessCredentialNFT.sol/AccessCredentialNFT.json"
+    if [ -f "$NFT_ARTIFACT" ]; then
+        cp "$NFT_ARTIFACT" "$PKG_DIR/usr/share/blockhost/contracts/"
+        echo "Copied AccessCredentialNFT artifact to package"
     fi
 
 else
@@ -230,8 +246,10 @@ Package: blockhost-engine
 Version: ${VERSION}
 Section: admin
 Priority: optional
-Architecture: all
-Depends: blockhost-common (>= 0.1.0), libpam-web3-tools (>= 0.5.0), nodejs (>= 18), python3 (>= 3.10)
+Architecture: amd64
+Depends: blockhost-common (>= 0.1.0), nodejs (>= 18), python3 (>= 3.10)
+Provides: pam-web3-tool
+Conflicts: libpam-web3-tools
 Recommends: blockhost-provisioner-proxmox (>= 0.1.0) | blockhost-provisioner-libvirt (>= 0.1.0)
 Maintainer: Blockhost <admin@blockhost.io>
 Description: Blockchain-based VM hosting subscription engine
@@ -317,6 +335,18 @@ cp "$PROJECT_DIR/scripts/generate-signup-page.py" "$PKG_DIR/usr/bin/blockhost-ge
 cp "$PROJECT_DIR/scripts/deploy-contracts.sh" "$PKG_DIR/usr/bin/blockhost-deploy-contracts"
 chmod 755 "$PKG_DIR/usr/bin/"*
 
+# pam_web3_tool binary (previously from libpam-web3-tools package)
+if [ -n "$PAM_WEB3_TOOL_BIN" ] && [ -f "$PAM_WEB3_TOOL_BIN" ]; then
+    cp "$PAM_WEB3_TOOL_BIN" "$PKG_DIR/usr/bin/pam_web3_tool"
+    chmod 755 "$PKG_DIR/usr/bin/pam_web3_tool"
+    echo "Included pam_web3_tool from: $PAM_WEB3_TOOL_BIN"
+else
+    echo "WARNING: pam_web3_tool binary not found at \$PAM_WEB3_TOOL_BIN"
+    echo "         Set PAM_WEB3_TOOL_BIN to the path of the pre-built binary"
+    echo "         (e.g., ../libpam-web3/target/release/pam_web3_tool)"
+    exit 1
+fi
+
 # Install mint_nft as importable Python module (used by wizard finalization)
 mkdir -p "$PKG_DIR/usr/lib/python3/dist-packages/blockhost"
 cp "$PROJECT_DIR/scripts/mint_nft.py" "$PKG_DIR/usr/lib/python3/dist-packages/blockhost/mint_nft.py"
@@ -347,6 +377,11 @@ cp "$PROJECT_DIR/scripts/deploy.ts" "$PROJECT_DIR/scripts/create-plan.ts" "$PKG_
 # Contract sources (for deployment/reference)
 cp "$PROJECT_DIR/contracts/BlockhostSubscriptions.sol" "$PKG_DIR/opt/blockhost/contracts/"
 cp "$PROJECT_DIR/contracts/mocks/"*.sol "$PKG_DIR/opt/blockhost/contracts/mocks/"
+
+# NFT contract source (for reference/redeployment)
+if [ -n "$LIBPAM_WEB3_DIR" ] && [ -f "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" ]; then
+    cp "$LIBPAM_WEB3_DIR/contracts/src/AccessCredentialNFT.sol" "$PKG_DIR/usr/share/blockhost/contracts/"
+fi
 
 # Static resources
 cp "$PROJECT_DIR/scripts/signup-template.html" "$PKG_DIR/usr/share/blockhost/"
@@ -392,7 +427,9 @@ echo "  /usr/share/blockhost/engine.json - Engine manifest"
 echo "  /usr/bin/blockhost-init         - Server initialization script"
 echo "  /usr/bin/blockhost-generate-signup - Signup page generator"
 echo "  /opt/blockhost/                 - Deployment scripts (require npm install)"
-echo "  /usr/share/blockhost/contracts/ - Compiled contract artifacts"
+echo "  /usr/bin/pam_web3_tool           - Crypto tool (keypair gen, encrypt/decrypt)"
+echo "  /usr/share/blockhost/contracts/BlockhostSubscriptions.json - Subscription contract artifact"
+echo "  /usr/share/blockhost/contracts/AccessCredentialNFT.json - NFT contract artifact"
 echo "  /lib/systemd/system/            - Systemd service unit"
 
 # Show contract compilation status
