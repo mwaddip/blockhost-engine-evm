@@ -1248,7 +1248,6 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
     try:
         blockchain = config.get("blockchain", {})
         admin_wallet = config.get("admin_wallet", "")
-        public_secret = config.get("admin_public_secret", "blockhost-access")
         admin_signature = config.get("admin_signature", "")
         nft_contract = blockchain.get("nft_contract", "")
         rpc_url = blockchain.get("rpc_url", "")
@@ -1368,9 +1367,7 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
 
             result = _mint_nft(
                 owner_wallet=admin_wallet,
-                machine_id="blockhost-admin",
                 user_encrypted=user_encrypted,
-                public_secret=public_secret,
             )
 
             if isinstance(result, dict):
@@ -1397,13 +1394,9 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
             "blockhost-mint-nft",
             "--owner-wallet",
             admin_wallet,
-            "--machine-id",
-            "blockhost-admin",
         ]
         if user_encrypted != "0x":
             cmd.extend(["--user-encrypted", user_encrypted])
-        if public_secret:
-            cmd.extend(["--public-secret", public_secret])
 
         result = subprocess.run(
             cmd,

@@ -20,7 +20,6 @@ const RECONCILE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const NFT_ABI = [
   "function totalSupply() view returns (uint256)",
   "function ownerOf(uint256 tokenId) view returns (address)",
-  "function tokenURI(uint256 tokenId) view returns (string)",
 ];
 
 interface VmEntry {

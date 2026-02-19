@@ -14,14 +14,15 @@ const WORKING_DIR = "/var/lib/blockhost";
 const SERVER_PRIVATE_KEY_FILE = "/etc/blockhost/server.key";
 const BLOCKHOST_CONFIG_FILE = "/etc/blockhost/blockhost.yaml";
 
-// Load static publicSecret from config (same for all users)
-function getPublicSecret(): string {
+// Load NFT contract address from web3-defaults.yaml
+function getNftContractAddress(): string | null {
   try {
-    const config = yaml.load(fs.readFileSync(BLOCKHOST_CONFIG_FILE, "utf8")) as Record<string, unknown>;
-    return (config.public_secret as string) || "blockhost-access";
-  } catch (err) {
-    console.warn(`[WARN] Could not load config, using default public_secret`);
-    return "blockhost-access";
+    const WEB3_CONFIG_FILE = "/etc/blockhost/web3-defaults.yaml";
+    const config = yaml.load(fs.readFileSync(WEB3_CONFIG_FILE, "utf8")) as Record<string, unknown>;
+    const blockchain = config.blockchain as Record<string, unknown> | undefined;
+    return (blockchain?.nft_contract as string) || null;
+  } catch {
+    return null;
   }
 }
 
@@ -135,7 +136,7 @@ function runCommand(command: string, args: string[]): Promise<{ stdout: string; 
   });
 }
 
-/** Summary JSON emitted by blockhost-vm-create --no-mint */
+/** Summary JSON emitted by blockhost-vm-create */
 interface VmCreateSummary {
   status: string;
   vm_name: string;
@@ -167,13 +168,13 @@ function parseVmSummary(stdout: string): VmCreateSummary | null {
 
 /**
  * Encrypt connection details using the user's signature (symmetric encryption).
- * Returns the encrypted hex string and public secret, or null on failure.
+ * Returns the encrypted hex string, or null on failure.
  */
 function encryptConnectionDetails(
   userSignature: string,
   hostname: string,
   username: string
-): { userEncrypted: string; publicSecret: string } | null {
+): string | null {
   const connectionDetails = JSON.stringify({
     hostname,
     port: 22,
@@ -193,14 +194,84 @@ function encryptConnectionDetails(
       return null;
     }
 
-    return {
-      userEncrypted: hexMatch[0],
-      publicSecret: getPublicSecret(),
-    };
+    return hexMatch[0];
   } catch (err) {
     console.error(`[ERROR] Failed to encrypt connection details: ${err}`);
     return null;
   }
+}
+
+/**
+ * Reserve an NFT token ID in the VM database.
+ * Queries totalSupply() on-chain to get the floor, then reserves in vms.json.
+ * Returns the reserved token ID, or null on failure.
+ */
+async function reserveNftTokenId(vmName: string): Promise<number | null> {
+  const nftAddress = getNftContractAddress();
+  if (!nftAddress) {
+    console.error("[ERROR] NFT contract address not configured");
+    return null;
+  }
+
+  const rpcUrl = process.env.RPC_URL || "";
+  if (!rpcUrl) {
+    console.error("[ERROR] RPC_URL not set");
+    return null;
+  }
+
+  try {
+    // Query totalSupply() on-chain to get the floor token ID
+    const totalSupplyResult = execFileSync("cast", [
+      "call", nftAddress, "totalSupply()(uint256)", "--rpc-url", rpcUrl,
+    ], { encoding: "utf8", timeout: 15000 });
+
+    const totalSupply = parseInt(totalSupplyResult.trim(), 10);
+    if (isNaN(totalSupply)) {
+      console.error(`[ERROR] Could not parse totalSupply: ${totalSupplyResult}`);
+      return null;
+    }
+
+    // Reserve in the VM database
+    const script = `
+from blockhost.vm_db import get_database
+db = get_database()
+db.reserve_nft_token_id("${vmName}", token_id=${totalSupply})
+print(${totalSupply})
+`;
+    const result = execFileSync("python3", ["-c", script], {
+      encoding: "utf8",
+      timeout: 10000,
+      cwd: WORKING_DIR,
+    });
+
+    const tokenId = parseInt(result.trim(), 10);
+    if (isNaN(tokenId)) {
+      console.error(`[ERROR] Could not parse reserved token ID: ${result}`);
+      return null;
+    }
+
+    return tokenId;
+  } catch (err) {
+    console.error(`[ERROR] Failed to reserve NFT token ID: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Mark an NFT reservation as failed in the VM database.
+ */
+function markNftFailed(tokenId: number): void {
+  const script = `
+from blockhost.vm_db import get_database
+db = get_database()
+db.mark_nft_failed(${tokenId})
+`;
+  const proc = spawn("python3", ["-c", script], { cwd: WORKING_DIR });
+  proc.on("close", (code) => {
+    if (code !== 0) {
+      console.error(`[WARN] Failed to mark NFT ${tokenId} as failed in database`);
+    }
+  });
 }
 
 /**
@@ -260,32 +331,41 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     }
   }
 
-  // Step 1: Create VM (without minting — engine handles NFT separately)
+  // Step 1: Reserve NFT token ID (engine owns this)
+  const nftTokenId = await reserveNftTokenId(vmName);
+  if (nftTokenId === null) {
+    console.error(`[ERROR] Failed to reserve NFT token ID for ${vmName}`);
+    console.log("==========================================\n");
+    return;
+  }
+  console.log(`[INFO] Reserved NFT token ID: ${nftTokenId}`);
+
+  // Step 2: Create VM (pass reserved token ID to provisioner)
   const createArgs = [
     vmName,
     "--owner-wallet", event.subscriber,
+    "--nft-token-id", nftTokenId.toString(),
     "--expiry-days", expiryDays.toString(),
-    "--no-mint",
     "--apply",
   ];
 
-  console.log("Creating VM (--no-mint)...");
+  console.log("Creating VM...");
   const result = await runCommand(getCommand("create"), createArgs);
 
   if (result.code !== 0) {
     console.error(`[ERROR] Failed to provision VM ${vmName}`);
     console.error(result.stderr || result.stdout);
+    markNftFailed(nftTokenId);
     console.log("==========================================\n");
     return;
   }
 
   console.log(`[OK] VM ${vmName} provisioned successfully`);
 
-  // Step 2: Parse JSON summary from provisioner output
+  // Step 3: Parse JSON summary from provisioner output
   const summary = parseVmSummary(result.stdout);
   if (!summary) {
-    // Old provisioner: no JSON summary, minting was handled inline
-    console.log("[INFO] No JSON summary from provisioner (legacy mode — minting handled by provisioner)");
+    console.log("[INFO] No JSON summary from provisioner (legacy mode)");
     console.log(result.stdout);
     console.log("==========================================\n");
     return;
@@ -293,30 +373,26 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
 
   console.log(`[INFO] VM summary: ip=${summary.ip}, vmid=${summary.vmid}, token=${summary.nft_token_id}`);
 
-  // Step 3: Encrypt connection details using user's signature
+  // Step 4: Encrypt connection details using user's signature
   let userEncrypted = "0x";
-  let publicSecret = "";
 
   if (userSignature) {
     const hostname = summary.ipv6 || summary.ip;
     const encrypted = encryptConnectionDetails(userSignature, hostname, summary.username);
     if (encrypted) {
-      userEncrypted = encrypted.userEncrypted;
-      publicSecret = encrypted.publicSecret;
+      userEncrypted = encrypted;
       console.log("[OK] Connection details encrypted");
     } else {
       console.warn("[WARN] Failed to encrypt connection details, minting without user data");
     }
   }
 
-  // Step 4: Mint NFT (separate from VM creation)
+  // Step 5: Mint NFT (separate from VM creation)
   const mintArgs = [
     "--owner-wallet", event.subscriber,
-    "--machine-id", summary.vm_name,
   ];
   if (userEncrypted !== "0x") {
     mintArgs.push("--user-encrypted", userEncrypted);
-    mintArgs.push("--public-secret", publicSecret);
   }
 
   console.log("Minting NFT...");
@@ -327,10 +403,10 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     markNftMinted(summary.nft_token_id, event.subscriber);
   } else {
     // VM exists and is functional, but NFT minting failed
-    // Operator can retry: blockhost-mint-nft --owner-wallet 0x... --machine-id blockhost-001
+    // Operator can retry: blockhost-mint-nft --owner-wallet 0x...
     console.error(`[WARN] NFT minting failed for ${vmName} (VM is still operational)`);
     console.error(mintResult.stderr || mintResult.stdout);
-    console.error(`[WARN] Retry manually: blockhost-mint-nft --owner-wallet ${event.subscriber} --machine-id ${summary.vm_name}`);
+    console.error(`[WARN] Retry manually: blockhost-mint-nft --owner-wallet ${event.subscriber}`);
   }
 
   console.log("==========================================\n");

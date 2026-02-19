@@ -33,9 +33,7 @@ def read_deployer_key(config: dict) -> str:
 
 def mint_nft(
     owner_wallet: str,
-    machine_id: str,
     user_encrypted: str = "0x",
-    public_secret: str = "",
     config: Optional[dict] = None,
     dry_run: bool = False,
 ) -> Optional[str]:
@@ -44,9 +42,7 @@ def mint_nft(
 
     Args:
         owner_wallet: Ethereum address to receive the NFT
-        machine_id: VM name/machine ID (used in description)
-        user_encrypted: Hex-encoded encrypted connection details (from subscription system)
-        public_secret: Message the user signed during subscription
+        user_encrypted: Hex-encoded encrypted connection details
         config: Web3 config dict (loaded from web3-defaults.yaml if None)
         dry_run: If True, print the command but don't execute
 
@@ -62,19 +58,13 @@ def mint_nft(
     # Read deployer key
     deployer_key = read_deployer_key(config)
 
-    # Build cast command with new contract signature
-    # Parameters: to, userEncrypted, publicSecret, description, imageUri, animationUrlBase64, expiresAt
+    # Build cast command — mint(address,bytes)
     cmd = [
         "cast", "send",
         nft_contract,
-        "mint(address,bytes,string,string,string,string,uint256)",
+        "mint(address,bytes)",
         owner_wallet,
-        user_encrypted,                     # Encrypted connection details
-        public_secret,                      # Message user signed during subscription
-        "IYKYK",                            # description (avoid leaking hostname on-chain)
-        "",                                 # imageUri (use default)
-        "",                                 # animationUrlBase64 (no longer embedded)
-        "0",                                # expiresAt (0 = never)
+        user_encrypted,
         "--private-key", deployer_key,
         "--rpc-url", rpc_url,
     ]
@@ -114,11 +104,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="Mint access credential NFT")
     parser.add_argument("--owner-wallet", required=True, help="Wallet address to receive the NFT")
-    parser.add_argument("--machine-id", required=True, help="Machine ID (used in NFT description)")
     parser.add_argument("--user-encrypted", default="0x",
                         help="Hex-encoded encrypted connection details (default: 0x)")
-    parser.add_argument("--public-secret", default="",
-                        help="Message the user signed during subscription")
     parser.add_argument("--dry-run", action="store_true", help="Print command without executing")
 
     args = parser.parse_args()
@@ -130,9 +117,7 @@ def main():
     try:
         tx_hash = mint_nft(
             owner_wallet=args.owner_wallet,
-            machine_id=args.machine_id,
             user_encrypted=args.user_encrypted,
-            public_secret=args.public_secret,
             dry_run=args.dry_run,
         )
         if tx_hash:

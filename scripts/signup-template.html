@@ -579,7 +579,7 @@
     const NFT_ABI = [
         'function balanceOf(address owner) view returns (uint256)',
         'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
-        'function tokenURI(uint256 tokenId) view returns (string)',
+        'function getUserEncrypted(uint256 tokenId) view returns (bytes)',
         'function ownerOf(uint256 tokenId) view returns (address)',
     ];
 
@@ -777,9 +777,11 @@
             for (let i = 0; i < balance; i++) {
                 try {
                     const tokenId = await nftContract.tokenOfOwnerByIndex(userAddress, i);
-                    const tokenURI = await nftContract.tokenURI(tokenId);
-                    const metadata = await fetchTokenMetadata(tokenURI);
-                    userNfts.push({ tokenId: tokenId.toString(), metadata });
+                    const userEncrypted = await nftContract.getUserEncrypted(tokenId);
+                    userNfts.push({
+                        tokenId: tokenId.toString(),
+                        userEncrypted: userEncrypted.startsWith('0x') ? userEncrypted : '0x' + Array.from(userEncrypted).map(b => b.toString(16).padStart(2, '0')).join(''),
+                    });
                 } catch (e) {
                     console.warn(`Error loading token at index ${i}:`, e);
                 }
@@ -800,26 +802,6 @@
         }
     }
 
-    // Fetch token metadata from URI
-    async function fetchTokenMetadata(tokenURI) {
-        try {
-            // Handle data URIs
-            if (tokenURI.startsWith('data:application/json')) {
-                const json = tokenURI.replace('data:application/json;base64,', '');
-                return JSON.parse(atob(json));
-            }
-            // Handle IPFS
-            if (tokenURI.startsWith('ipfs://')) {
-                tokenURI = tokenURI.replace('ipfs://', 'https://ipfs.io/ipfs/');
-            }
-            const response = await fetch(tokenURI);
-            return await response.json();
-        } catch (e) {
-            console.error('Error fetching metadata:', e);
-            return { name: 'Unknown', description: 'Could not load metadata' };
-        }
-    }
-
     // Render NFT list
     function renderNftList() {
         const container = document.getElementById('servers-list');
@@ -830,11 +812,8 @@
             card.className = 'server-card' + (index === 0 ? ' selected' : '');
             card.innerHTML = `
                 <div class="server-card-header">
-                    <span class="server-card-title">${nft.metadata.name || 'Server'}</span>
+                    <span class="server-card-title">Server</span>
                     <span class="server-card-id">Token #${nft.tokenId}</span>
-                </div>
-                <div style="color: var(--text-muted); font-size: 0.75rem;">
-                    ${nft.metadata.description || ''}
                 </div>
             `;
             card.onclick = () => selectNft(index);
@@ -868,17 +847,14 @@
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>Signing...';
 
-            // Get public secret from NFT metadata (may be at top level or nested under 'access')
-            const access = selectedNft.metadata.access || {};
-            const publicSecret = selectedNft.metadata.publicSecret || selectedNft.metadata.public_secret || access.publicSecret || access.public_secret || CONFIG.publicSecret;
-            const userEncrypted = selectedNft.metadata.userEncrypted || selectedNft.metadata.user_encrypted || access.userEncrypted || access.user_encrypted;
+            const userEncrypted = selectedNft.userEncrypted;
 
-            if (!userEncrypted) {
-                throw new Error('No encrypted data found in NFT metadata');
+            if (!userEncrypted || userEncrypted === '0x') {
+                throw new Error('No encrypted data found for this NFT');
             }
 
-            // Sign the public secret
-            const signature = await signer.signMessage(publicSecret);
+            // Sign the public secret (from host config, not per-token)
+            const signature = await signer.signMessage(CONFIG.publicSecret);
 
             // Derive key from signature
             showStatus(statusEl, 'Decrypting...', 'info');
@@ -933,19 +909,16 @@
                 tokenId = await nftContract.tokenOfOwnerByIndex(address, 0);
             }
 
-            showStatus(statusEl, 'Loading NFT metadata...', 'info');
+            showStatus(statusEl, 'Loading NFT data...', 'info');
 
-            const tokenURI = await nftContract.tokenURI(tokenId);
-            const metadata = await fetchTokenMetadata(tokenURI);
+            const userEncryptedRaw = await nftContract.getUserEncrypted(tokenId);
+            const userEncrypted = userEncryptedRaw.startsWith('0x') ? userEncryptedRaw : '0x' + Array.from(userEncryptedRaw).map(b => b.toString(16).padStart(2, '0')).join('');
 
-            // May be at top level or nested under 'access'
-            const access = metadata.access || {};
-            const publicSecret = metadata.publicSecret || metadata.public_secret || access.publicSecret || access.public_secret || CONFIG.publicSecret;
-            const userEncrypted = metadata.userEncrypted || metadata.user_encrypted || access.userEncrypted || access.user_encrypted;
-
-            if (!userEncrypted) {
-                throw new Error('No encrypted data found in NFT metadata');
+            if (!userEncrypted || userEncrypted === '0x') {
+                throw new Error('No encrypted data found for this NFT');
             }
+
+            const publicSecret = CONFIG.publicSecret;
 
             // Display info for offline signing
             document.getElementById('offline-public-secret').textContent = publicSecret;

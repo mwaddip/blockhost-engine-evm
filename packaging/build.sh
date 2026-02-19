@@ -178,7 +178,7 @@ if command -v forge &> /dev/null; then
 src = "src"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.20"
+solc_version = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 TOML
@@ -357,7 +357,7 @@ chmod 755 "$PKG_DIR/usr/bin/blockhost-mint-nft"
 
 # Deployment scripts (need Hardhat/Node.js for one-time deployment)
 cp "$PROJECT_DIR/package.json" "$PROJECT_DIR/package-lock.json" "$PKG_DIR/opt/blockhost/"
-cp "$PROJECT_DIR/tsconfig.json" "$PROJECT_DIR/hardhat.config.ts" "$PKG_DIR/opt/blockhost/"
+cp "$PROJECT_DIR/tsconfig.json" "$PKG_DIR/opt/blockhost/"
 cp "$PROJECT_DIR/scripts/deploy.ts" "$PROJECT_DIR/scripts/create-plan.ts" "$PKG_DIR/opt/blockhost/scripts/"
 
 # Contract sources (for deployment/reference)
