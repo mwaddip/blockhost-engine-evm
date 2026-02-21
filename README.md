@@ -49,13 +49,13 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - Python 3.10+
 - Bun (for compiling auth-svc standalone binary)
 - Foundry (forge/cast) for NFT contract deployment
 - `blockhost-common` package (shared configuration)
 - A provisioner package (e.g. `blockhost-provisioner-proxmox`) with a manifest
-- `python3-pycryptodome` and `python3-ecdsa` (crypto operations for nft_tool)
+- `python3-pycryptodome` and `python3-ecdsa` (crypto operations for bhcrypt)
 
 ## Quick Start
 
@@ -88,23 +88,13 @@ This will:
 - Deploy AccessCredentialNFT (VM access credentials)
 - Update `/etc/blockhost/web3-defaults.yaml` with the NFT contract address
 
-### 4. Initialize server
-
-```bash
-sudo ./scripts/init-server.sh
-```
-
-This creates:
-- `/etc/blockhost/server.key` - Server private key for ECIES encryption
-- `/etc/blockhost/blockhost.yaml` - Server configuration
-
-### 5. Generate signup page
+### 4. Generate signup page
 
 ```bash
 python3 scripts/generate-signup-page.py --output /var/www/signup.html
 ```
 
-### 6. Start monitor service
+### 5. Start monitor service
 
 ```bash
 npm run monitor
@@ -387,7 +377,6 @@ blockhost-engine/
 ├── scripts/                   # Deployment & utility scripts
 │   ├── deploy.ts              # Contract deployment (Hardhat, development)
 │   ├── deploy-contracts.sh    # Contract deployment (production, no Hardhat)
-│   ├── init-server.sh         # Server initialization
 │   ├── generate-signup-page.py
 │   └── signup-template.html
 ├── blockhost/engine_evm/       # Installer wizard plugin

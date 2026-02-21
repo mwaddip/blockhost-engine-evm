@@ -216,10 +216,10 @@ def api_validate_key():
                 400,
             )
     except FileNotFoundError:
-        # Fallback: try nft_tool
+        # Fallback: try bhcrypt
         try:
             result = subprocess.run(
-                ["nft_tool", "key-to-address", "--key", private_key],
+                ["bhcrypt", "key-to-address", "--key", private_key],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -564,7 +564,7 @@ def validate_signature(sig: str) -> bool:
 
 
 def decrypt_config(signature: str, ciphertext: str) -> dict:
-    """Decrypt config backup using nft_tool.
+    """Decrypt config backup using bhcrypt.
 
     Args:
         signature: Admin wallet signature (0x-prefixed hex)
@@ -575,7 +575,7 @@ def decrypt_config(signature: str, ciphertext: str) -> dict:
 
     Raises:
         ValueError: On decryption failure or invalid content
-        FileNotFoundError: If nft_tool not installed
+        FileNotFoundError: If bhcrypt not installed
     """
     import yaml
 
@@ -584,7 +584,7 @@ def decrypt_config(signature: str, ciphertext: str) -> dict:
 
     result = subprocess.run(
         [
-            "nft_tool",
+            "bhcrypt",
             "decrypt-symmetric",
             "--signature",
             signature,
@@ -605,7 +605,7 @@ def decrypt_config(signature: str, ciphertext: str) -> dict:
 
 
 def encrypt_config(signature: str, plaintext: str) -> str:
-    """Encrypt config for backup download using nft_tool.
+    """Encrypt config for backup download using bhcrypt.
 
     Args:
         signature: Admin wallet signature (0x-prefixed hex)
@@ -616,11 +616,11 @@ def encrypt_config(signature: str, plaintext: str) -> str:
 
     Raises:
         ValueError: On encryption failure
-        FileNotFoundError: If nft_tool not installed
+        FileNotFoundError: If bhcrypt not installed
     """
     result = subprocess.run(
         [
-            "nft_tool",
+            "bhcrypt",
             "encrypt-symmetric",
             "--signature",
             signature,
@@ -786,10 +786,10 @@ def _derive_address_from_key(private_key: str) -> Optional[str]:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Try nft_tool
+    # Try bhcrypt
     try:
         result = subprocess.run(
-            ["nft_tool", "key-to-address", "--key", f"0x{key_hex}"],
+            ["bhcrypt", "key-to-address", "--key", f"0x{key_hex}"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -812,7 +812,7 @@ def _derive_address_from_key(private_key: str) -> Optional[str]:
 def finalize_keypair(config: dict) -> tuple[bool, Optional[str]]:
     """Generate server ECIES keypair (server.key + server.pubkey).
 
-    Uses ecdsa library for secp256k1 key generation (same as nft_tool).
+    Uses ecdsa library for secp256k1 key generation (same as bhcrypt).
     Idempotent: skips if both files already exist. If only server.key
     exists, derives the public key from it rather than regenerating.
     """
@@ -1278,7 +1278,7 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
             try:
                 encrypt_result = subprocess.run(
                     [
-                        "nft_tool",
+                        "bhcrypt",
                         "encrypt-symmetric",
                         "--signature",
                         admin_signature,

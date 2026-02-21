@@ -80,12 +80,6 @@ components:
       has them sign a message (for encrypted connection details), and
       submits the buySubscription transaction.
 
-  server_init:
-    path: scripts/init-server.sh
-    description: |
-      Server initialization script. Generates server keypair for ECIES
-      encryption, creates /etc/blockhost/blockhost.yaml config.
-
 # External package dependencies
 dependencies:
   blockhost-common:
@@ -143,10 +137,6 @@ commands:
     command: python3 scripts/generate-signup-page.py --output signup.html
     description: Generate signup page HTML
 
-  init_server:
-    command: sudo ./scripts/init-server.sh
-    description: Initialize server (generates keypair, creates config)
-
 # Deployment architecture
 deployment:
   blockchain:
@@ -196,7 +186,6 @@ integration:
     - Install blockhost-common (provides config directories and Python modules)
     - Install blockhost-provisioner-proxmox (provides VM provisioning scripts)
     - Install blockhost-engine
-    - Run blockhost-init to generate server keypair and config
     - Deploy contract: npm run deploy:sepolia (or use deployed address)
     - Update nft_contract in /etc/blockhost/web3-defaults.yaml
     - Fund deployer wallet with ETH for gas

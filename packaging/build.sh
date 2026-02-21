@@ -38,7 +38,7 @@ echo "Bundling monitor with esbuild..."
 npx esbuild "$PROJECT_DIR/src/monitor/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/monitor.js"
 
@@ -56,7 +56,7 @@ echo "Bundling bw CLI with esbuild..."
 npx esbuild "$PROJECT_DIR/src/bw/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/bw.js"
 
@@ -81,7 +81,7 @@ echo "Bundling ab CLI with esbuild..."
 npx esbuild "$PROJECT_DIR/src/ab/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/ab.js"
 
@@ -106,7 +106,7 @@ echo "Bundling is CLI with esbuild..."
 npx esbuild "$PROJECT_DIR/src/is/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/is.js"
 
@@ -241,9 +241,8 @@ Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: all
-Depends: blockhost-common (>= 0.1.0), nodejs (>= 18), python3 (>= 3.10), python3-pycryptodome (>= 3.15), python3-ecdsa
-Provides: nft-tool
-Conflicts: libpam-web3-tools
+Depends: blockhost-common (>= 0.1.0), nodejs (>= 22), python3 (>= 3.10), python3-pycryptodome (>= 3.15), python3-ecdsa
+Provides: bhcrypt
 Recommends: blockhost-provisioner-proxmox (>= 0.1.0) | blockhost-provisioner-libvirt (>= 0.1.0)
 Maintainer: Blockhost <admin@blockhost.io>
 Description: Blockchain-based VM hosting subscription engine
@@ -274,11 +273,10 @@ case "$1" in
         echo "=========================================="
         echo ""
         echo "Next steps:"
-        echo "1. Run: sudo blockhost-init"
-        echo "2. Fund the deployer wallet with ETH"
-        echo "3. Deploy contracts:"
-        echo "   cd /opt/blockhost && npm install && npx hardhat run scripts/deploy.ts --network sepolia"
-        echo "4. Run: sudo systemctl enable --now blockhost-monitor"
+        echo "1. Fund the deployer wallet with ETH"
+        echo "2. Deploy contracts:"
+        echo "   blockhost-deploy-contracts"
+        echo "3. Run: sudo systemctl enable --now blockhost-monitor"
         echo ""
         ;;
 esac
@@ -323,15 +321,14 @@ chmod 755 "$PKG_DIR/DEBIAN/postinst" "$PKG_DIR/DEBIAN/prerm" "$PKG_DIR/DEBIAN/po
 # ============================================
 echo "Copying files..."
 
-# Bin scripts (init, signup generator, and deploy)
-cp "$PROJECT_DIR/scripts/init-server.sh" "$PKG_DIR/usr/bin/blockhost-init"
+# Bin scripts (signup generator and deploy)
 cp "$PROJECT_DIR/scripts/generate-signup-page.py" "$PKG_DIR/usr/bin/blockhost-generate-signup"
 cp "$PROJECT_DIR/scripts/deploy-contracts.sh" "$PKG_DIR/usr/bin/blockhost-deploy-contracts"
 chmod 755 "$PKG_DIR/usr/bin/"*
 
-# nft_tool (Python crypto CLI, replaces deprecated pam_web3_tool Rust binary)
-cp "$PROJECT_DIR/scripts/nft_tool.py" "$PKG_DIR/usr/bin/nft_tool"
-chmod 755 "$PKG_DIR/usr/bin/nft_tool"
+# bhcrypt (Python crypto CLI)
+cp "$PROJECT_DIR/scripts/bhcrypt.py" "$PKG_DIR/usr/bin/bhcrypt"
+chmod 755 "$PKG_DIR/usr/bin/bhcrypt"
 
 # Install mint_nft as importable Python module (used by wizard finalization)
 mkdir -p "$PKG_DIR/usr/lib/python3/dist-packages/blockhost"
@@ -408,10 +405,9 @@ echo "  /usr/bin/blockhost-mint-nft      - NFT minting CLI wrapper"
 echo "  /usr/lib/python3/dist-packages/blockhost/mint_nft.py - NFT minting module"
 echo "  /usr/lib/python3/dist-packages/blockhost/engine_evm/ - Engine wizard plugin"
 echo "  /usr/share/blockhost/engine.json - Engine manifest"
-echo "  /usr/bin/blockhost-init         - Server initialization script"
 echo "  /usr/bin/blockhost-generate-signup - Signup page generator"
 echo "  /opt/blockhost/                 - Deployment scripts (require npm install)"
-echo "  /usr/bin/nft_tool                - NFT & crypto tool (keypair gen, encrypt/decrypt)"
+echo "  /usr/bin/bhcrypt                 - Crypto CLI (keypair gen, encrypt/decrypt)"
 echo "  /usr/share/blockhost/contracts/BlockhostSubscriptions.json - Subscription contract artifact"
 echo "  /usr/share/blockhost/contracts/AccessCredentialNFT.json - NFT contract artifact"
 echo "  /lib/systemd/system/            - Systemd service unit"

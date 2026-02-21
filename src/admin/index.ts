@@ -31,14 +31,13 @@ export function tryDecryptCommand(txData: string): string | null {
   }
 
   try {
-    // Use nft_tool for ECIES decryption
+    // Use bhcrypt for ECIES decryption
     const result = execFileSync(
-      "nft_tool",
+      "bhcrypt",
       ["decrypt", "--private-key-file", privateKeyPath, "--ciphertext", ciphertext],
       { encoding: "utf8", timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
     );
-    // Strip "Decrypted: " prefix if present
-    return result.trim().replace(/^Decrypted:\s*/, '');
+    return result.trim();
   } catch {
     // Decryption failed - this is not an admin command
     return null;

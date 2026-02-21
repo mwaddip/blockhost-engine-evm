@@ -4,6 +4,8 @@
  */
 
 import { ethers } from "ethers";
+import { createPipeline } from "blockhost-runner";
+import type { Pipeline } from "blockhost-runner";
 import {
   handleSubscriptionCreated,
   handleSubscriptionExtended,
@@ -21,6 +23,7 @@ import {
   runReconciliation,
   shouldRunReconciliation,
   getReconcileInterval,
+  setPipeline,
 } from "../reconcile";
 import {
   shouldRunFundCycle,
@@ -30,6 +33,9 @@ import {
   getFundCycleInterval,
   getGasCheckInterval,
 } from "../fund-manager";
+import { getCommand } from "../provisioner";
+import * as fs from "fs";
+import * as yaml from "js-yaml";
 
 // Contract ABI - only the events we care about
 const CONTRACT_ABI = [
@@ -44,12 +50,33 @@ const CONTRACT_ABI = [
   "event FundsWithdrawn(address indexed token, address indexed to, uint256 amount)",
 ];
 
+// NFT contract ABI - for totalSupply query
+const NFT_ABI = [
+  "function totalSupply() view returns (uint256)",
+];
+
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+const WEB3_CONFIG_PATH = "/etc/blockhost/web3-defaults.yaml";
+
+/**
+ * Load NFT contract address from web3-defaults.yaml
+ */
+function loadNftContractAddress(): string | null {
+  try {
+    if (!fs.existsSync(WEB3_CONFIG_PATH)) return null;
+    const config = yaml.load(fs.readFileSync(WEB3_CONFIG_PATH, "utf8")) as Record<string, unknown>;
+    const blockchain = config.blockchain as Record<string, unknown> | undefined;
+    return (blockchain?.nft_contract as string) || null;
+  } catch {
+    return null;
+  }
+}
 
 async function processLogs(
   contract: ethers.Contract,
   fromBlock: number,
-  toBlock: number
+  toBlock: number,
+  pipeline: Pipeline,
 ): Promise<void> {
   const iface = contract.interface;
 
@@ -75,7 +102,7 @@ async function processLogs(
             paidAmount: parsed.args[4],
             paymentToken: parsed.args[5],
             userEncrypted: parsed.args[6],
-          }, txHash);
+          }, txHash, pipeline);
           break;
 
         case "SubscriptionExtended":
@@ -179,6 +206,52 @@ async function main() {
   // Create contract instance
   const contract = new ethers.Contract(contractAddress, CONTRACT_ABI, provider);
 
+  // Create pipeline
+  const pipeline = createPipeline({
+    stateFile: '/var/lib/blockhost/pipeline.json',
+    commands: {
+      bhcrypt: 'bhcrypt',
+      create: getCommand('create'),
+      mint: 'blockhost-mint-nft',
+      updateGecos: getCommand('update-gecos'),
+    },
+    serverKeyPath: '/etc/blockhost/server.key',
+    timeouts: {
+      crypto: 10_000,
+      vmCreate: 600_000,
+      mint: 120_000,
+      db: 10_000,
+    },
+    retry: { baseMs: 5_000, maxRetries: 3 },
+    workingDir: '/var/lib/blockhost',
+  });
+
+  // Share pipeline with reconciler
+  setPipeline(pipeline);
+
+  // Initialize token counter from on-chain totalSupply if needed
+  if (pipeline.getNextTokenId() === -1) {
+    const nftAddress = loadNftContractAddress();
+    if (nftAddress) {
+      try {
+        const nftContract = new ethers.Contract(nftAddress, NFT_ABI, provider);
+        const supply = await nftContract.totalSupply();
+        pipeline.setNextTokenId(Number(supply));
+        console.log(`[INFO] Initialized token counter from chain: ${Number(supply)}`);
+      } catch (err) {
+        console.warn(`[WARN] Could not query totalSupply for token counter init: ${err}`);
+      }
+    }
+  } else {
+    console.log(`[INFO] Token counter loaded from state: ${pipeline.getNextTokenId()}`);
+  }
+
+  // Resume incomplete pipeline from previous run (crash recovery)
+  if (pipeline.isPipelineBusy()) {
+    console.log("[INFO] Resuming incomplete pipeline from previous run...");
+    await pipeline.resumeOrDrain();
+  }
+
   // Start from current block
   let lastProcessedBlock = await provider.getBlockNumber();
   console.log(`Starting from block: ${lastProcessedBlock}`);
@@ -200,7 +273,7 @@ async function main() {
           const toBlock = currentBlock;
 
           // Process contract events
-          await processLogs(contract, fromBlock, toBlock);
+          await processLogs(contract, fromBlock, toBlock, pipeline);
 
           // Process admin commands from transactions (if configured)
           if (adminConfig) {
@@ -210,25 +283,22 @@ async function main() {
           lastProcessedBlock = currentBlock;
         }
 
-        // Run NFT reconciliation periodically (non-blocking health check)
-        if (shouldRunReconciliation()) {
-          runReconciliation(provider).catch((err) => {
-            console.error(`[RECONCILE] Error: ${err}`);
-          });
-        }
+        // Drain pipeline queue (processes items enqueued during event processing)
+        await pipeline.resumeOrDrain();
 
-        // Run fund withdrawal & distribution cycle periodically
-        if (shouldRunFundCycle()) {
-          runFundCycle(provider).catch((err) => {
-            console.error(`[FUND] Error: ${err}`);
-          });
-        }
+        // Background tasks — only when pipeline is idle
+        if (!pipeline.isPipelineBusy()) {
+          if (shouldRunReconciliation()) {
+            await runReconciliation(provider);
+          }
 
-        // Check gas balance and swap if needed
-        if (shouldRunGasCheck()) {
-          runGasCheck(provider).catch((err) => {
-            console.error(`[GAS] Error: ${err}`);
-          });
+          if (shouldRunFundCycle()) {
+            await runFundCycle(provider);
+          }
+
+          if (shouldRunGasCheck()) {
+            await runGasCheck(provider);
+          }
         }
       } catch (err) {
         console.error(`Polling error: ${err}`);

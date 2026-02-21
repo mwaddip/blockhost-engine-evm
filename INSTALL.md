@@ -60,7 +60,7 @@ foundryup
 /root/.foundry/bin/cast --version
 ```
 
-**nft_tool** is included in the blockhost-engine package (no separate install needed).
+**bhcrypt** is included in the blockhost-engine package (no separate install needed).
 Dependencies `python3-pycryptodome` and `python3-ecdsa` are pulled in automatically.
 
 ### 2. Install Blockhost Packages
@@ -95,7 +95,7 @@ After installing the packages, the following structure is created:
 
 /var/lib/blockhost/
 ├── terraform/                # Terraform working directory
-└── vms.json                  # VM database (initialized by blockhost-init)
+└── vms.json                  # VM database
 
 # Provided by blockhost-provisioner-proxmox:
 /usr/lib/blockhost-provisioner-proxmox/
@@ -109,32 +109,16 @@ After installing the packages, the following structure is created:
 └── src/                      # TypeScript source
 
 /usr/bin/
-├── blockhost-init            # Server initialization script
 └── blockhost-generate-signup # Signup page generator
 
-# Created by blockhost-init:
+# Created by wizard finalization:
 /etc/blockhost/
 ├── blockhost.yaml            # Server config
 ├── server.key                # Server private key (chmod 600)
 └── deployer.key              # Deployer private key (chmod 600)
 ```
 
-### 4. Initialize Server
-
-Run the initialization script to generate keypairs and configuration:
-
-```bash
-sudo blockhost-init
-```
-
-This creates:
-- Server keypair for ECIES encryption
-- Deployer wallet keypair (for minting NFTs)
-- `/etc/blockhost/blockhost.yaml` configuration
-
-Note the **deployer wallet address** - you'll need to fund it with ETH for gas.
-
-### 5. Configure Environment
+### 4. Configure Environment
 
 Edit `/opt/blockhost/.env` with your contract address:
 
@@ -150,13 +134,13 @@ blockchain:
   nft_contract: "0xYourDeployedContractAddress"
 ```
 
-### 6. Enable and Start Service
+### 5. Enable and Start Service
 
 ```bash
 systemctl enable --now blockhost-monitor
 ```
 
-### 7. Verify Service Status
+### 6. Verify Service Status
 
 ```bash
 systemctl status blockhost-monitor

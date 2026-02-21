@@ -151,7 +151,7 @@ function updateConfig(nftContractAddress: string, subscriptionContractAddress: s
 
   if (!fs.existsSync(WEB3_CONFIG_PATH)) {
     console.log(`Config file not found at ${WEB3_CONFIG_PATH}, skipping update`);
-    console.log("Run 'blockhost-init' first, then update manually:");
+    console.log("Update manually:");
     console.log(`  blockchain.nft_contract: "${nftContractAddress}"`);
     return;
   }
