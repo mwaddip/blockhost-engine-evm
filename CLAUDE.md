@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `src/bw/` | S8 P7 E6 C7 I6 A6 L7 | User-facing wallet ops. Funds at stake. |
 | `src/ab/` | S6 P6 E5 C7 I6 A5 L5 | Simple CRUD. Don't overthink it. |
 | `src/is/` | S7 P7 E5 C7 I6 A7 L5 | Simple queries. Exit codes matter. |
-| `scripts/bhcrypt.py` | S7 P9 E6 C6 I7 A8 L6 | Crypto CLI. Key handling and correctness non-negotiable. |
+| `scripts/nft_tool.py` | S7 P9 E6 C6 I7 A8 L6 | Crypto CLI. Key handling and correctness non-negotiable. |
 | `src/auth-svc/` | S7 P9 E8 C5 I7 A7 L7 | Auth boundary. Must not crash, must not leak. |
 | everything else | S7 P7 E8 C5 I9 A7 L8 | Architectural discipline is survival. |
 
@@ -50,13 +50,12 @@ blockhost-engine is the core component of a hosting subscription management syst
 5. **bw CLI** (TypeScript) - Scriptable wallet operations (`bw send`, `bw balance`, `bw withdraw`, `bw swap`, `bw split`, `bw who`, `bw config`, `bw plan`, `bw set`)
 6. **ab CLI** (TypeScript) - Addressbook management (`ab add`, `ab del`, `ab up`, `ab new`, `ab list`, `ab --init`)
 7. **is CLI** (TypeScript) - Identity predicate (`is <wallet> <nft_id>`, `is <signature> <wallet>`, `is contract <address>`)
-8. **NFT Minting** (Python) - `blockhost-mint-nft` CLI, mints access credential NFTs
-9. **bhcrypt** (Python) - `bhcrypt` crypto CLI (keypair generation, ECIES decrypt, symmetric encrypt/decrypt)
-10. **Root Agent Client** (TypeScript) - Privilege separation client for the root agent daemon (iptables, key writes, addressbook saves)
-11. **Contract Deployer** (Bash) - `blockhost-deploy-contracts` script for production contract deployment
-12. **Installer Wizard Plugin** (Python) - `blockhost/engine_evm/wizard.py`, provides the blockchain configuration wizard page, API routes, and finalization steps to the installer
-13. **Engine Manifest** (`engine.json`) - Declares engine identity, wizard plugin, finalization steps, and `constraints` (chain-specific format patterns for input validation by installer/admin panel)
-14. **Auth Service** (TypeScript→binary) - `web3-auth-svc`, HTTPS signing server compiled to standalone binary via `bun build --compile`. Ships as a template package for VMs.
+8. **NFT Minting** (Python) - `blockhost-mint-nft` CLI, mints access credential NFTs via Foundry's `cast`
+9. **Root Agent Client** (TypeScript) - Privilege separation client for the root agent daemon (iptables, key writes, addressbook saves)
+10. **Contract Deployer** (Bash) - `blockhost-deploy-contracts` script for production contract deployment
+11. **Installer Wizard Plugin** (Python) - `blockhost/engine_evm/wizard.py`, provides the blockchain configuration wizard page, API routes, and finalization steps to the installer
+12. **Engine Manifest** (`engine.json`) - Declares engine identity, wizard plugin, finalization steps, and `constraints` (chain-specific format patterns for input validation by installer/admin panel)
+13. **Auth Service** (TypeScript→binary) - `web3-auth-svc`, HTTPS signing server compiled to standalone binary via `bun build --compile`. Ships as a template package for VMs.
 
 VM provisioning is handled by the separate `blockhost-provisioner-proxmox` package.
 Shared configuration is provided by `blockhost-common`.
@@ -94,7 +93,6 @@ blockhost-engine/
 │   ├── BlockhostSubscriptions.sol  # Main subscription contract
 │   └── mocks/           # Mock contracts for testing
 ├── scripts/             # Deployment, minting, and utility scripts
-│   ├── bhcrypt.py       # Crypto CLI (installed as bhcrypt)
 │   ├── mint_nft.py      # NFT minting (installed as blockhost-mint-nft)
 │   ├── deploy-contracts.sh  # Production contract deployer (installed as blockhost-deploy-contracts)
 ├── test/                # Contract tests
@@ -342,6 +340,6 @@ Length-prefixed JSON: 4-byte big-endian length + JSON payload (both directions).
 ### What does NOT go through the root agent
 
 - Reading keyfiles and addressbook.json — works via group permission (`blockhost` group, mode 0640)
-- ECIES decryption (`bhcrypt`) — `blockhost` user can read `server.key` via group permission
+- ECIES decryption (`nft_tool`) — `blockhost` user can read `server.key` via group permission
 - VM provisioning scripts — provisioner runs as `blockhost`
 - Process checks (`pgrep`) — no privilege needed

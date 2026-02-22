@@ -9,7 +9,6 @@ import { ethers } from "ethers";
 import { execSync, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as yaml from "js-yaml";
-import type { Pipeline } from "blockhost-runner";
 import { getCommand } from "../provisioner";
 
 const VMS_JSON_PATH = "/var/lib/blockhost/vms.json";
@@ -40,13 +39,28 @@ interface VmsDatabase {
 
 let lastReconcileTime = 0;
 let reconcileInProgress = false;
-let _pipeline: Pipeline | null = null;
 
 /**
- * Set the pipeline instance (called by monitor on startup)
+ * Check if the provisioner's create command is currently running
  */
-export function setPipeline(pipeline: Pipeline): void {
-  _pipeline = pipeline;
+function isProvisioningInProgress(): boolean {
+  try {
+    const result = spawnSync("pgrep", ["-f", getCommand("create")], {
+      encoding: "utf8",
+    });
+    if (result.stdout && result.stdout.trim()) {
+      return true;
+    }
+
+    // Also check for lock file if one exists
+    if (fs.existsSync("/var/run/blockhost-provisioning.lock")) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -222,9 +236,9 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
     return;
   }
 
-  // Check if pipeline is busy (replaces pgrep-based check)
-  if (_pipeline?.isPipelineBusy()) {
-    console.log(`[RECONCILE] Skipping - pipeline is busy`);
+  // Check if provisioning is in progress
+  if (isProvisioningInProgress()) {
+    console.log(`[RECONCILE] Skipping - provisioning in progress`);
     return;
   }
 
@@ -258,15 +272,6 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
     }
 
     const onChainCount = Number(onChainSupply);
-
-    // Drift correction: sync pipeline token counter with on-chain supply
-    if (_pipeline) {
-      const localNextId = _pipeline.getNextTokenId();
-      if (onChainCount > localNextId) {
-        console.log(`[RECONCILE] Token counter drift: local=${localNextId}, chain=${onChainCount}. Correcting.`);
-        _pipeline.setNextTokenId(onChainCount);
-      }
-    }
 
     // Derive local expected next ID from reserved_nft_tokens keys
     // The next ID would be max(existing keys) + 1, or 0 if no tokens reserved

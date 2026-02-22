@@ -16,9 +16,6 @@
     "clean": "hardhat clean",
     "monitor": "npx tsx src/monitor/index.ts"
   },
-  "dependencies": {
-    "blockhost-runner": "file:../blockhost-runner"
-  },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "@openzeppelin/contracts": "^5.0.0",
@@ -27,6 +24,6 @@
     "tsx": "^4.21.0"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=18.0.0"
   }
 }

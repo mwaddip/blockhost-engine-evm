@@ -86,7 +86,7 @@ def generate_page(config: dict, template: str) -> str:
     primary_color = config.get('primary_color', '#6366f1')
 
     if not server_public_key:
-        print("Error: server_public_key not found in config. Run wizard finalization first.")
+        print("Error: server_public_key not found in config. Run blockhost-init first.")
         sys.exit(1)
 
     # Replace placeholders
