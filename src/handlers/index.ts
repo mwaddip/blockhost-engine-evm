@@ -4,27 +4,12 @@
  */
 
 import { ethers } from "ethers";
-import { spawn, execFileSync } from "child_process";
-import * as fs from "fs";
-import * as yaml from "js-yaml";
+import { spawn, execFileSync, spawnSync } from "child_process";
 import { getCommand } from "../provisioner";
 
 // Paths on the server
 const WORKING_DIR = "/var/lib/blockhost";
 const SERVER_PRIVATE_KEY_FILE = "/etc/blockhost/server.key";
-const BLOCKHOST_CONFIG_FILE = "/etc/blockhost/blockhost.yaml";
-
-// Load NFT contract address from web3-defaults.yaml
-function getNftContractAddress(): string | null {
-  try {
-    const WEB3_CONFIG_FILE = "/etc/blockhost/web3-defaults.yaml";
-    const config = yaml.load(fs.readFileSync(WEB3_CONFIG_FILE, "utf8")) as Record<string, unknown>;
-    const blockchain = config.blockchain as Record<string, unknown> | undefined;
-    return (blockchain?.nft_contract as string) || null;
-  } catch {
-    return null;
-  }
-}
 
 export interface SubscriptionCreatedEvent {
   subscriptionId: bigint;
@@ -82,30 +67,63 @@ function calculateExpiryDays(expiresAt: bigint): number {
 }
 
 /**
- * Decrypt userEncrypted data using the server's private key
- * Returns the decrypted user signature, or null if decryption fails
+ * Decrypt userEncrypted data using the server's private key (ECIES via bhcrypt).
+ * Returns the decrypted user signature, or null if decryption fails.
  *
- * For testing: if the data looks like a raw signature (0x + 130 hex chars), use it directly
+ * For testing: if the data looks like a raw signature (0x + 130 hex chars), use it directly.
  */
 function decryptUserSignature(userEncrypted: string): string | null {
   // Check if it's a raw signature (65 bytes = 130 hex chars + 0x prefix)
-  // Ethereum signatures are 65 bytes: r (32) + s (32) + v (1)
   if (userEncrypted.startsWith("0x") && userEncrypted.length === 132) {
     console.log("[INFO] Using raw signature (no decryption needed)");
     return userEncrypted;
   }
 
-  // Otherwise, try to decrypt with server's private key
   try {
     const result = execFileSync(
-      "nft_tool",
+      "bhcrypt",
       ["decrypt", "--private-key-file", SERVER_PRIVATE_KEY_FILE, "--ciphertext", userEncrypted],
       { encoding: "utf8", timeout: 10000 }
     );
-    // Strip "Decrypted: " prefix if present
-    return result.trim().replace(/^Decrypted:\s*/, '');
+    return result.trim();
   } catch (err) {
     console.error(`[ERROR] Failed to decrypt user signature: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Encrypt connection details using the user's signature (symmetric encryption via bhcrypt).
+ * Returns the encrypted hex string, or null on failure.
+ */
+function encryptConnectionDetails(
+  userSignature: string,
+  hostname: string,
+  username: string
+): string | null {
+  const connectionDetails = JSON.stringify({
+    hostname,
+    port: 22,
+    username,
+  });
+
+  try {
+    const result = execFileSync("bhcrypt", [
+      "encrypt-symmetric",
+      "--signature", userSignature,
+      "--plaintext", connectionDetails,
+    ], { encoding: "utf8", timeout: 10000 });
+
+    // bhcrypt outputs raw 0x-prefixed hex (no labels)
+    const output = result.trim();
+    if (output.startsWith("0x")) {
+      return output;
+    }
+
+    console.error("[ERROR] Unexpected encrypt-symmetric output format");
+    return null;
+  } catch (err) {
+    console.error(`[ERROR] Failed to encrypt connection details: ${err}`);
     return null;
   }
 }
@@ -143,7 +161,6 @@ interface VmCreateSummary {
   ip: string;
   ipv6?: string;
   vmid: number;
-  nft_token_id: number;
   username: string;
 }
 
@@ -167,127 +184,42 @@ function parseVmSummary(stdout: string): VmCreateSummary | null {
 }
 
 /**
- * Encrypt connection details using the user's signature (symmetric encryption).
- * Returns the encrypted hex string, or null on failure.
+ * Parse the minted token ID from blockhost-mint-nft stdout.
+ * The mint script outputs the token ID as an integer on stdout.
  */
-function encryptConnectionDetails(
-  userSignature: string,
-  hostname: string,
-  username: string
-): string | null {
-  const connectionDetails = JSON.stringify({
-    hostname,
-    port: 22,
-    username,
-  });
-
-  try {
-    const result = execFileSync("nft_tool", [
-      "encrypt-symmetric",
-      "--signature", userSignature,
-      "--plaintext", connectionDetails,
-    ], { encoding: "utf8", timeout: 10000 });
-
-    const hexMatch = result.match(/0x[0-9a-fA-F]+/);
-    if (!hexMatch) {
-      console.error("[ERROR] No hex data in encrypt-symmetric output");
-      return null;
+function parseMintTokenId(stdout: string): number | null {
+  const trimmed = stdout.trim();
+  // Look for an integer (the last line that is purely numeric)
+  const lines = trimmed.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    const parsed = parseInt(line, 10);
+    if (!isNaN(parsed) && String(parsed) === line) {
+      return parsed;
     }
-
-    return hexMatch[0];
-  } catch (err) {
-    console.error(`[ERROR] Failed to encrypt connection details: ${err}`);
-    return null;
   }
+  return null;
 }
 
 /**
- * Reserve an NFT token ID in the VM database.
- * Queries totalSupply() on-chain to get the floor, then reserves in vms.json.
- * Returns the reserved token ID, or null on failure.
+ * Mark an NFT as minted in the VM database (awaited).
  */
-async function reserveNftTokenId(vmName: string): Promise<number | null> {
-  const nftAddress = getNftContractAddress();
-  if (!nftAddress) {
-    console.error("[ERROR] NFT contract address not configured");
-    return null;
-  }
-
-  const rpcUrl = process.env.RPC_URL || "";
-  if (!rpcUrl) {
-    console.error("[ERROR] RPC_URL not set");
-    return null;
-  }
-
-  try {
-    // Query totalSupply() on-chain to get the floor token ID
-    const totalSupplyResult = execFileSync("cast", [
-      "call", nftAddress, "totalSupply()(uint256)", "--rpc-url", rpcUrl,
-    ], { encoding: "utf8", timeout: 15000 });
-
-    const totalSupply = parseInt(totalSupplyResult.trim(), 10);
-    if (isNaN(totalSupply)) {
-      console.error(`[ERROR] Could not parse totalSupply: ${totalSupplyResult}`);
-      return null;
-    }
-
-    // Reserve in the VM database
-    const script = `
-from blockhost.vm_db import get_database
-db = get_database()
-db.reserve_nft_token_id("${vmName}", token_id=${totalSupply})
-print(${totalSupply})
-`;
-    const result = execFileSync("python3", ["-c", script], {
-      encoding: "utf8",
-      timeout: 10000,
-      cwd: WORKING_DIR,
-    });
-
-    const tokenId = parseInt(result.trim(), 10);
-    if (isNaN(tokenId)) {
-      console.error(`[ERROR] Could not parse reserved token ID: ${result}`);
-      return null;
-    }
-
-    return tokenId;
-  } catch (err) {
-    console.error(`[ERROR] Failed to reserve NFT token ID: ${err}`);
-    return null;
-  }
-}
-
-/**
- * Mark an NFT reservation as failed in the VM database.
- */
-function markNftFailed(tokenId: number): void {
-  const script = `
-from blockhost.vm_db import get_database
-db = get_database()
-db.mark_nft_failed(${tokenId})
-`;
-  const proc = spawn("python3", ["-c", script], { cwd: WORKING_DIR });
-  proc.on("close", (code) => {
-    if (code !== 0) {
-      console.error(`[WARN] Failed to mark NFT ${tokenId} as failed in database`);
-    }
-  });
-}
-
-/**
- * Mark an NFT as minted in the VM database (fire-and-forget).
- */
-function markNftMinted(nftTokenId: number, ownerWallet: string): void {
+async function markNftMinted(nftTokenId: number, ownerWallet: string, vmName: string): Promise<boolean> {
   const script = `
 from blockhost.vm_db import get_database
 db = get_database()
 db.mark_nft_minted(${nftTokenId}, "${ownerWallet}")
 `;
-  const proc = spawn("python3", ["-c", script], { cwd: WORKING_DIR });
-  proc.on("close", (code) => {
-    if (code !== 0) {
-      console.error(`[WARN] Failed to mark NFT ${nftTokenId} as minted in database`);
-    }
+  return new Promise((resolve) => {
+    const proc = spawn("python3", ["-c", script], { cwd: WORKING_DIR });
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        console.error(`[WARN] Failed to mark NFT ${nftTokenId} as minted for ${vmName}`);
+        resolve(false);
+      } else {
+        resolve(true);
+      }
+    });
   });
 }
 
@@ -319,7 +251,8 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
   console.log(`Provisioning VM: ${vmName}`);
   console.log(`Expiry: ${expiryDays} days`);
 
-  // Decrypt user signature if provided (needed for connection detail encryption)
+  // Step 1: Decrypt user signature BEFORE creating VM
+  // If decryption fails, don't create the VM
   let userSignature: string | null = null;
   if (event.userEncrypted && event.userEncrypted !== "0x") {
     console.log("Decrypting user signature...");
@@ -327,24 +260,16 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     if (userSignature) {
       console.log("User signature decrypted successfully");
     } else {
-      console.warn("[WARN] Could not decrypt user signature, proceeding without encrypted connection details");
+      console.error(`[ERROR] Could not decrypt user signature for ${vmName} — aborting`);
+      console.log("==========================================\n");
+      return;
     }
   }
 
-  // Step 1: Reserve NFT token ID (engine owns this)
-  const nftTokenId = await reserveNftTokenId(vmName);
-  if (nftTokenId === null) {
-    console.error(`[ERROR] Failed to reserve NFT token ID for ${vmName}`);
-    console.log("==========================================\n");
-    return;
-  }
-  console.log(`[INFO] Reserved NFT token ID: ${nftTokenId}`);
-
-  // Step 2: Create VM (pass reserved token ID to provisioner)
+  // Step 2: Create VM (no --nft-token-id, no --no-mint)
   const createArgs = [
     vmName,
     "--owner-wallet", event.subscriber,
-    "--nft-token-id", nftTokenId.toString(),
     "--expiry-days", expiryDays.toString(),
     "--apply",
   ];
@@ -355,7 +280,6 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
   if (result.code !== 0) {
     console.error(`[ERROR] Failed to provision VM ${vmName}`);
     console.error(result.stderr || result.stdout);
-    markNftFailed(nftTokenId);
     console.log("==========================================\n");
     return;
   }
@@ -371,7 +295,7 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     return;
   }
 
-  console.log(`[INFO] VM summary: ip=${summary.ip}, vmid=${summary.vmid}, token=${summary.nft_token_id}`);
+  console.log(`[INFO] VM summary: ip=${summary.ip}, vmid=${summary.vmid}`);
 
   // Step 4: Encrypt connection details using user's signature
   let userEncrypted = "0x";
@@ -387,7 +311,7 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     }
   }
 
-  // Step 5: Mint NFT (separate from VM creation)
+  // Step 5: Mint NFT — capture actual token ID from stdout
   const mintArgs = [
     "--owner-wallet", event.subscriber,
   ];
@@ -398,16 +322,41 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
   console.log("Minting NFT...");
   const mintResult = await runCommand("blockhost-mint-nft", mintArgs);
 
-  if (mintResult.code === 0) {
-    console.log(`[OK] NFT minted for ${vmName}`);
-    markNftMinted(summary.nft_token_id, event.subscriber);
-  } else {
-    // VM exists and is functional, but NFT minting failed
-    // Operator can retry: blockhost-mint-nft --owner-wallet 0x...
+  if (mintResult.code !== 0) {
     console.error(`[WARN] NFT minting failed for ${vmName} (VM is still operational)`);
     console.error(mintResult.stderr || mintResult.stdout);
     console.error(`[WARN] Retry manually: blockhost-mint-nft --owner-wallet ${event.subscriber}`);
+    console.log("==========================================\n");
+    return;
   }
+
+  console.log(`[OK] NFT minted for ${vmName}`);
+
+  const actualTokenId = parseMintTokenId(mintResult.stdout);
+  if (actualTokenId === null) {
+    console.warn(`[WARN] Could not parse token ID from mint output — GECOS update skipped`);
+    console.log("==========================================\n");
+    return;
+  }
+
+  console.log(`[INFO] Minted token ID: ${actualTokenId}`);
+
+  // Step 6: Call update-gecos with actual token ID
+  const updateGecosCmd = getCommand("update-gecos");
+  const gecosResult = spawnSync(updateGecosCmd, [vmName, event.subscriber, "--nft-id", String(actualTokenId)], {
+    timeout: 30_000,
+    cwd: WORKING_DIR,
+  });
+  if (gecosResult.status !== 0) {
+    const errMsg = ((gecosResult.stderr || gecosResult.stdout) ?? "").toString().trim();
+    console.error(`[WARN] update-gecos failed for ${vmName}: ${errMsg || `exit ${gecosResult.status}`}`);
+    // Not fatal — reconciler will retry
+  } else {
+    console.log(`[OK] GECOS updated for ${vmName} with token ${actualTokenId}`);
+  }
+
+  // Step 7: Mark NFT minted in DB (awaited, not fire-and-forget)
+  await markNftMinted(actualTokenId, event.subscriber, vmName);
 
   console.log("==========================================\n");
 }

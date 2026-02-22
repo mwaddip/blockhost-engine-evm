@@ -210,25 +210,31 @@ async function main() {
           lastProcessedBlock = currentBlock;
         }
 
-        // Run NFT reconciliation periodically (non-blocking health check)
+        // Run NFT reconciliation periodically
         if (shouldRunReconciliation()) {
-          runReconciliation(provider).catch((err) => {
+          try {
+            await runReconciliation(provider);
+          } catch (err) {
             console.error(`[RECONCILE] Error: ${err}`);
-          });
+          }
         }
 
         // Run fund withdrawal & distribution cycle periodically
         if (shouldRunFundCycle()) {
-          runFundCycle(provider).catch((err) => {
+          try {
+            await runFundCycle(provider);
+          } catch (err) {
             console.error(`[FUND] Error: ${err}`);
-          });
+          }
         }
 
         // Check gas balance and swap if needed
         if (shouldRunGasCheck()) {
-          runGasCheck(provider).catch((err) => {
+          try {
+            await runGasCheck(provider);
+          } catch (err) {
             console.error(`[GAS] Error: ${err}`);
-          });
+          }
         }
       } catch (err) {
         console.error(`Polling error: ${err}`);

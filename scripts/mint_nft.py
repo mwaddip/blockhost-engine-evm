@@ -90,11 +90,27 @@ def mint_nft(
             tx_hash = line.strip().split()[-1]
             break
 
-    if tx_hash:
-        print(f"NFT minted! TX: {tx_hash}")
-    else:
-        print(f"NFT minted! Output: {result.stdout.strip()}")
+    if not tx_hash:
+        print(f"Mint succeeded but could not extract tx hash", file=sys.stderr)
+        print(result.stdout.strip(), file=sys.stderr)
+        return None
 
+    # Query totalSupply() to derive the minted token ID (totalSupply - 1)
+    try:
+        supply_result = subprocess.run(
+            ["cast", "call", nft_contract, "totalSupply()(uint256)", "--rpc-url", rpc_url],
+            capture_output=True, text=True, timeout=15,
+        )
+        if supply_result.returncode == 0:
+            total_supply = int(supply_result.stdout.strip())
+            token_id = total_supply - 1
+            print(token_id)
+            return tx_hash
+    except (subprocess.TimeoutExpired, ValueError):
+        pass
+
+    # Fallback: output tx hash on stderr, nothing parseable on stdout
+    print(f"Minted but could not determine token ID (tx: {tx_hash})", file=sys.stderr)
     return tx_hash
 
 

@@ -60,7 +60,7 @@ foundryup
 /root/.foundry/bin/cast --version
 ```
 
-**nft_tool** is included in the blockhost-engine package (no separate install needed).
+**bhcrypt** is included in the blockhost-engine package (no separate install needed).
 Dependencies `python3-pycryptodome` and `python3-ecdsa` are pulled in automatically.
 
 ### 2. Install Blockhost Packages
@@ -216,7 +216,7 @@ npm install
 | `/etc/blockhost/db.yaml` | Database and IP pool configuration |
 | `/etc/blockhost/server.key` | Server private key (ECIES) |
 | `/etc/blockhost/deployer.key` | Deployer private key (NFT minting) |
-| `/var/lib/blockhost/vms.json` | VM database (VMs, reserved NFT tokens) |
+| `/var/lib/blockhost/vms.json` | VM database (VMs, NFT state) |
 
 ## VM Provisioning
 

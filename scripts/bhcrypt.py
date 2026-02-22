@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-nft_tool -- NFT & crypto CLI for Blockhost engine.
+bhcrypt -- Crypto CLI for Blockhost engine.
 
-Replaces the deprecated pam_web3_tool Rust binary.
 Provides: keypair generation, address derivation, symmetric encryption/decryption,
 and ECIES decryption (Noble-compatible).
 
@@ -42,12 +41,11 @@ def cmd_generate_keypair(args):
     """Generate a secp256k1 keypair."""
     sk = SigningKey.generate(curve=SECP256k1)
     priv_hex = sk.to_string().hex()
-    print(f"Private key (hex): {priv_hex}")
+    sys.stdout.write(priv_hex)
     if args.show_pubkey:
         vk = sk.get_verifying_key()
         pub_hex = (b"\x04" + vk.to_string()).hex()
-        # Two spaces before hex value (aligns with "Private key (hex): ")
-        print(f"Public key (hex):  {pub_hex}")
+        sys.stdout.write(f"\n{pub_hex}")
 
 
 def cmd_derive_pubkey(args):
@@ -56,7 +54,7 @@ def cmd_derive_pubkey(args):
     sk = SigningKey.from_string(bytes.fromhex(priv_hex), curve=SECP256k1)
     vk = sk.get_verifying_key()
     pub_hex = (b"\x04" + vk.to_string()).hex()
-    print(f"Public key (hex): {pub_hex}")
+    sys.stdout.write(pub_hex)
 
 
 def cmd_key_to_address(args):
@@ -89,7 +87,7 @@ def cmd_encrypt_symmetric(args):
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
     ciphertext, tag = cipher.encrypt_and_digest(args.plaintext.encode("utf-8"))
     output = nonce + ciphertext + tag
-    print(f"Ciphertext (hex): 0x{output.hex()}")
+    sys.stdout.write(f"0x{output.hex()}")
 
 
 def cmd_decrypt_symmetric(args):
@@ -127,14 +125,6 @@ def cmd_decrypt(args):
     Format: ephemeralPK[65] || iv[12] || ciphertext || tag[16]
     ECDH -> HKDF-SHA256(ikm=shared_x, salt=zeros, info=empty) -> AES-256-GCM
     """
-    if args.scheme:
-        print(
-            f"Error: --scheme {args.scheme} is not implemented in nft_tool. "
-            "Only the default Noble ECIES format is supported.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     # Read private key from file
     try:
         priv_hex = open(args.private_key_file).read().strip()
@@ -187,16 +177,6 @@ def cmd_decrypt(args):
     sys.stdout.write(plaintext.decode("utf-8"))
 
 
-def cmd_not_implemented(args):
-    """Placeholder for deprecated subcommands."""
-    print(
-        f"Error: '{args.subcommand}' is not implemented in nft_tool. "
-        "This subcommand was part of the deprecated pam_web3_tool.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
-
-
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -204,8 +184,8 @@ def cmd_not_implemented(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="nft_tool",
-        description="NFT & crypto tool for Blockhost engine",
+        prog="bhcrypt",
+        description="Crypto CLI for Blockhost engine",
     )
     sub = parser.add_subparsers(dest="subcommand")
 
@@ -243,13 +223,6 @@ def main():
         "--private-key-file", required=True, help="Path to private key file"
     )
     dc.add_argument("--ciphertext", required=True, help="ECIES ciphertext hex")
-    dc.add_argument(
-        "--scheme",
-        help="(not supported: secp256k1/x25519 schemes are deprecated)",
-    )
-
-    # Deprecated subcommands (error out with message)
-    sub.add_parser("wallet-encryption-key", help="(deprecated, not implemented)")
 
     args = parser.parse_args()
 
@@ -264,14 +237,14 @@ def main():
         "encrypt-symmetric": cmd_encrypt_symmetric,
         "decrypt-symmetric": cmd_decrypt_symmetric,
         "decrypt": cmd_decrypt,
-        "wallet-encryption-key": cmd_not_implemented,
     }
 
     handler = handlers.get(args.subcommand)
     if handler:
         handler(args)
     else:
-        cmd_not_implemented(args)
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

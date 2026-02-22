@@ -45,17 +45,17 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 | `src/root-agent/` | TypeScript | Client for the privileged root agent daemon |
 | `blockhost/engine_evm/` | Python | Installer wizard plugin (blockchain config, finalization steps) |
 | `auth-svc/signing-page/` | HTML | Signing page served by auth-svc |
-| `scripts/` | TS/Python/Bash | Deployment, signup page generation, server init |
+| `scripts/` | TS/Python/Bash | Deployment, crypto CLI, signup page generation |
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - Python 3.10+
 - Bun (for compiling auth-svc standalone binary)
 - Foundry (forge/cast) for NFT contract deployment
 - `blockhost-common` package (shared configuration)
 - A provisioner package (e.g. `blockhost-provisioner-proxmox`) with a manifest
-- `python3-pycryptodome` and `python3-ecdsa` (crypto operations for nft_tool)
+- `python3-pycryptodome` and `python3-ecdsa` (crypto operations for bhcrypt)
 
 ## Quick Start
 
@@ -175,7 +175,7 @@ This is the sole mechanism for propagating NFT ownership changes to VMs. The PAM
 | `admin-commands.json` | `/etc/blockhost/` | Admin command definitions (port knocking, etc.) |
 | `addressbook.json` | `/etc/blockhost/` | Role-to-wallet mapping (admin, server, hot, dev, broker) |
 | `revenue-share.json` | `/etc/blockhost/` | Revenue sharing configuration (dev/broker splits) |
-| `vms.json` | `/var/lib/blockhost/` | VM database (IPs, VMIDs, reserved NFT tokens) |
+| `vms.json` | `/var/lib/blockhost/` | VM database (IPs, VMIDs, NFT state) |
 | `engine.json` | `/usr/share/blockhost/` | Engine manifest (identity, wizard plugin, constraints) |
 
 ## Fund Manager
@@ -384,10 +384,11 @@ blockhost-engine/
 ├── contracts/                 # Solidity smart contracts
 │   ├── BlockhostSubscriptions.sol
 │   └── mocks/                 # Test mocks
-├── scripts/                   # Deployment & utility scripts
+├── scripts/                   # Deployment, crypto CLI & utility scripts
+│   ├── bhcrypt.py             # Crypto CLI (installed as bhcrypt)
+│   ├── mint_nft.py            # NFT minting (installed as blockhost-mint-nft)
 │   ├── deploy.ts              # Contract deployment (Hardhat, development)
 │   ├── deploy-contracts.sh    # Contract deployment (production, no Hardhat)
-│   ├── init-server.sh         # Server initialization
 │   ├── generate-signup-page.py
 │   └── signup-template.html
 ├── blockhost/engine_evm/       # Installer wizard plugin
