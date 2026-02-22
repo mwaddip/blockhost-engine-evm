@@ -333,8 +333,9 @@ export async function executeKnock(
     };
   }
 
-  // Validate duration
-  const duration = Math.max(1, params.duration || defaultDuration);
+  // Validate duration (1s–3600s)
+  const MAX_KNOCK_DURATION = 3600;
+  const duration = Math.min(MAX_KNOCK_DURATION, Math.max(1, params.duration || defaultDuration));
 
   // Validate optional source IPv6 address
   const source = params.source;
@@ -355,8 +356,10 @@ export async function executeKnock(
     }
 
     // Set timeout to close ports (phase 1 duration limit)
-    const timeoutId = setTimeout(async () => {
-      await closeKnock(txHash, "timeout");
+    const timeoutId = setTimeout(() => {
+      closeKnock(txHash, "timeout").catch((err) => {
+        console.error(`[KNOCK] Error closing knock on timeout: ${err}`);
+      });
     }, duration * 1000);
 
     // Track this knock

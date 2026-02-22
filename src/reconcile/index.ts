@@ -6,21 +6,15 @@
  */
 
 import { ethers } from "ethers";
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
-import * as yaml from "js-yaml";
 import { getCommand } from "../provisioner";
+import { loadWeb3Defaults } from "../config/web3-config";
+import { loadBlockhostConfig } from "../config/blockhost-config";
+import { NFT_READ_ABI } from "../config/nft-abi";
 
 const VMS_JSON_PATH = "/var/lib/blockhost/vms.json";
-const WEB3_CONFIG_PATH = "/etc/blockhost/web3-defaults.yaml";
-const BLOCKHOST_CONFIG_PATH = "/etc/blockhost/blockhost.yaml";
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-
-// NFT contract ABI - only what we need
-const NFT_ABI = [
-  "function totalSupply() view returns (uint256)",
-  "function ownerOf(uint256 tokenId) view returns (address)",
-];
 
 interface VmEntry {
   vm_name: string;
@@ -40,25 +34,23 @@ let lastReconcileTime = 0;
 let reconcileInProgress = false;
 
 /**
- * Load NFT contract address from config
+ * Load NFT contract address from config (web3-defaults.yaml first, blockhost.yaml fallback)
  */
-function loadNftContractAddress(): string | null {
+function loadNftContract(): string | null {
   try {
     // Try web3-defaults.yaml first
-    if (fs.existsSync(WEB3_CONFIG_PATH)) {
-      const config = yaml.load(fs.readFileSync(WEB3_CONFIG_PATH, "utf8")) as Record<string, unknown>;
-      const blockchain = config.blockchain as Record<string, unknown> | undefined;
+    const web3 = loadWeb3Defaults();
+    if (web3) {
+      const blockchain = web3.blockchain as Record<string, unknown> | undefined;
       if (blockchain?.nft_contract) {
         return blockchain.nft_contract as string;
       }
     }
 
     // Fall back to blockhost.yaml
-    if (fs.existsSync(BLOCKHOST_CONFIG_PATH)) {
-      const config = yaml.load(fs.readFileSync(BLOCKHOST_CONFIG_PATH, "utf8")) as Record<string, unknown>;
-      if (config.nft_contract) {
-        return config.nft_contract as string;
-      }
+    const bhConfig = loadBlockhostConfig();
+    if (bhConfig?.nft_contract) {
+      return bhConfig.nft_contract as string;
     }
 
     return null;
@@ -89,37 +81,12 @@ function loadVmsDatabase(): VmsDatabase | null {
  */
 function saveVmsDatabase(db: VmsDatabase): boolean {
   try {
-    fs.writeFileSync(VMS_JSON_PATH, JSON.stringify(db, null, 2));
+    const tmpFile = `${VMS_JSON_PATH}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2));
+    fs.renameSync(tmpFile, VMS_JSON_PATH);
     return true;
   } catch (err) {
     console.error(`[RECONCILE] Error saving vms.json: ${err}`);
-    return false;
-  }
-}
-
-/**
- * Update local state using Python (for consistency with blockhost-provisioner-proxmox)
- */
-function markTokenMintedViaPython(tokenId: number, vmName: string): boolean {
-  const script = `
-from blockhost.vm_db import get_database
-
-db = get_database()
-db.mark_nft_minted('${vmName}', ${tokenId})
-print(f"Marked token {${tokenId}} as minted for ${vmName}")
-`;
-
-  try {
-    const result = execSync(`python3 -c "${script.replace(/"/g, '\\"')}"`, {
-      encoding: "utf8",
-      timeout: 10000,
-      cwd: "/var/lib/blockhost",
-    });
-    console.log(`[RECONCILE] ${result.trim()}`);
-    return true;
-  } catch (err) {
-    // Python module might not be available, fall back to direct JSON update
-    console.warn(`[RECONCILE] Python update failed, will use direct JSON update`);
     return false;
   }
 }
@@ -216,7 +183,7 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
 
   try {
     // Load NFT contract address
-    const nftAddress = loadNftContractAddress();
+    const nftAddress = loadNftContract();
     if (!nftAddress) {
       // NFT contract not configured yet, skip silently
       return;
@@ -229,37 +196,13 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
     }
 
     // Create contract instance
-    const nftContract = new ethers.Contract(nftAddress, NFT_ABI, provider);
-
-    // Reconcile NFT minting: for each active/suspended VM where nft_minted !== true,
-    // check on-chain for an NFT owned by this wallet
-    for (const [vmName, vm] of Object.entries(localDb.vms)) {
-      if (vm.status === "destroyed") continue;
-      if (vm.nft_minted === true) continue;
-
-      if (vm.nft_token_id !== undefined) {
-        // VM has a token ID assigned — check if it exists on-chain
-        try {
-          await nftContract.ownerOf(vm.nft_token_id);
-          // Token exists on-chain, mark as minted locally
-          console.log(`[RECONCILE] Token #${vm.nft_token_id} exists on-chain for ${vmName}, marking minted`);
-          if (!markTokenMintedViaPython(vm.nft_token_id, vmName)) {
-            vm.nft_minted = true;
-            saveVmsDatabase(localDb);
-          }
-        } catch {
-          // Token doesn't exist on-chain yet
-          console.warn(`[RECONCILE] Token #${vm.nft_token_id} not found on-chain for ${vmName}`);
-        }
-      } else {
-        // No token ID assigned — log warning
-        console.warn(`[RECONCILE] VM ${vmName} has no NFT token ID and nft_minted !== true`);
-      }
-    }
+    const nftContract = new ethers.Contract(nftAddress, NFT_READ_ABI, provider);
 
     // Reconcile NFT ownership transfers and retry failed GECOS updates
     await reconcileOwnership(nftContract, localDb);
 
+    // Mark reconciliation as done only on success (failed runs retry next poll)
+    lastReconcileTime = Date.now();
   } catch (err) {
     console.error(`[RECONCILE] Error during reconciliation: ${err}`);
   } finally {
@@ -271,12 +214,7 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
  * Check if reconciliation should run (based on interval)
  */
 export function shouldRunReconciliation(): boolean {
-  const now = Date.now();
-  if (now - lastReconcileTime >= RECONCILE_INTERVAL_MS) {
-    lastReconcileTime = now;
-    return true;
-  }
-  return false;
+  return Date.now() - lastReconcileTime >= RECONCILE_INTERVAL_MS;
 }
 
 /**

@@ -127,7 +127,8 @@ def cmd_decrypt(args):
     """
     # Read private key from file
     try:
-        priv_hex = open(args.private_key_file).read().strip()
+        with open(args.private_key_file) as f:
+            priv_hex = f.read().strip()
     except OSError as e:
         print(f"Error: cannot read key file: {e}", file=sys.stderr)
         sys.exit(1)

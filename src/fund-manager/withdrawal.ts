@@ -79,8 +79,9 @@ export async function withdrawFromContract(
         const priceUsdCents: bigint = await contract.getTokenPriceUsdCents(pmId);
         const balanceFloat = parseFloat(ethers.formatUnits(balance, decimals));
         usdValue = (balanceFloat * Number(priceUsdCents)) / 100;
-      } catch {
+      } catch (err) {
         usdValue = parseFloat(ethers.formatUnits(balance, decimals));
+        console.warn(`[FUND] Price query failed for ${symbol} (pmId=${pmId}), using $1 fallback: ${err}`);
       }
 
       if (usdValue < config.min_withdrawal_usd) {

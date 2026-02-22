@@ -3,11 +3,8 @@
  * Supports override via web3-defaults.yaml
  */
 
-import * as fs from "fs";
-import * as yaml from "js-yaml";
 import type { ChainConfig } from "./types";
-
-const WEB3_DEFAULTS_PATH = "/etc/blockhost/web3-defaults.yaml";
+import { loadWeb3Defaults } from "../config/web3-config";
 
 const KNOWN_CHAINS: Record<string, ChainConfig> = {
   // Ethereum mainnet
@@ -42,11 +39,8 @@ export function getChainConfig(chainId: bigint): ChainConfig | null {
 
   // Check for overrides in web3-defaults.yaml
   try {
-    if (fs.existsSync(WEB3_DEFAULTS_PATH)) {
-      const config = yaml.load(
-        fs.readFileSync(WEB3_DEFAULTS_PATH, "utf8")
-      ) as Record<string, unknown>;
-
+    const config = loadWeb3Defaults();
+    if (config) {
       const uniswap = config.uniswap_v2 as Record<string, string> | undefined;
       if (uniswap && uniswap.router && uniswap.weth) {
         const base = KNOWN_CHAINS[id] || {

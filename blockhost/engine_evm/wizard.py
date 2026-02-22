@@ -11,7 +11,6 @@ Provides:
 import grp
 import json
 import os
-import re
 import secrets
 import subprocess
 import threading
@@ -78,6 +77,13 @@ def validate_address(address: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def validate_rpc_url(url: str) -> bool:
+    """Validate an RPC URL: only http(s) schemes allowed (no file://, etc.)."""
+    if not url or not isinstance(url, str):
+        return False
+    return url.startswith("https://") or url.startswith("http://")
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +251,9 @@ def api_balance():
 
     if not validate_address(address):
         return jsonify({"error": "Invalid address"}), 400
+
+    if not validate_rpc_url(rpc_url):
+        return jsonify({"error": "Invalid RPC URL (must be http or https)"}), 400
 
     import urllib.request
     import urllib.error
@@ -1020,6 +1029,9 @@ def _verify_contract_exists(address: str, rpc_url: str) -> bool:
         return result.returncode == 0
     except FileNotFoundError:
         pass
+
+    if not validate_rpc_url(rpc_url):
+        return False
 
     # Fallback: eth_getCode via JSON-RPC
     import urllib.request

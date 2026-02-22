@@ -14,47 +14,17 @@
  * and admin.credential_nft_id from blockhost.yaml.
  */
 
-import * as fs from "fs";
-import * as yaml from "js-yaml";
 import { ethers } from "ethers";
-
-const WEB3_DEFAULTS_PATH = "/etc/blockhost/web3-defaults.yaml";
-const BLOCKHOST_CONFIG_PATH = "/etc/blockhost/blockhost.yaml";
-
-const NFT_ABI = ["function ownerOf(uint256 tokenId) view returns (address)"];
-
-interface Web3Config {
-  nftContract: string;
-  rpcUrl: string;
-}
-
-function loadWeb3Config(): Web3Config {
-  if (!fs.existsSync(WEB3_DEFAULTS_PATH)) {
-    throw new Error(`Config not found: ${WEB3_DEFAULTS_PATH}`);
-  }
-
-  const raw = yaml.load(fs.readFileSync(WEB3_DEFAULTS_PATH, "utf8")) as Record<string, unknown>;
-  const blockchain = raw.blockchain as Record<string, unknown> | undefined;
-
-  const nftContract = blockchain?.nft_contract as string | undefined;
-  if (!nftContract || !ethers.isAddress(nftContract)) {
-    throw new Error("blockchain.nft_contract not set or invalid in web3-defaults.yaml");
-  }
-
-  const rpcUrl = blockchain?.rpc_url as string | undefined;
-  if (!rpcUrl) {
-    throw new Error("blockchain.rpc_url not set in web3-defaults.yaml");
-  }
-
-  return { nftContract, rpcUrl };
-}
+import { loadWeb3Config } from "../../config/web3-config";
+import { loadBlockhostConfig } from "../../config/blockhost-config";
+import { NFT_READ_ABI } from "../../config/nft-abi";
 
 function loadAdminNftId(): number {
-  if (!fs.existsSync(BLOCKHOST_CONFIG_PATH)) {
-    throw new Error(`Config not found: ${BLOCKHOST_CONFIG_PATH}`);
+  const raw = loadBlockhostConfig();
+  if (!raw) {
+    throw new Error("Config not found: blockhost.yaml");
   }
 
-  const raw = yaml.load(fs.readFileSync(BLOCKHOST_CONFIG_PATH, "utf8")) as Record<string, unknown>;
   const admin = raw.admin as Record<string, unknown> | undefined;
 
   if (!admin || admin.credential_nft_id === undefined || admin.credential_nft_id === null) {
@@ -116,7 +86,7 @@ export async function whoCommand(args: string[]): Promise<void> {
 
   const { nftContract, rpcUrl } = loadWeb3Config();
   const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const contract = new ethers.Contract(nftContract, NFT_ABI, provider);
+  const contract = new ethers.Contract(nftContract, NFT_READ_ABI, provider);
 
   try {
     const owner: string = await contract.ownerOf(tokenId);

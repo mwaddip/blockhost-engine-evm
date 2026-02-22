@@ -80,10 +80,11 @@ export async function getAllTokenBalances(
             const priceUsdCents: bigint = await contract.getTokenPriceUsdCents(pmId);
             const balanceFloat = parseFloat(ethers.formatUnits(balance, decimals));
             usdValue = (balanceFloat * Number(priceUsdCents)) / 100;
-          } catch {
-            // Price query failed; stablecoins default to $1
+          } catch (err) {
+            // Price query failed; assume $1 per token (stablecoin fallback)
             const balanceFloat = parseFloat(ethers.formatUnits(balance, decimals));
-            usdValue = balanceFloat; // Assume 1:1 for stablecoins
+            usdValue = balanceFloat;
+            console.warn(`[FUND] Price query failed for ${symbol} (pmId=${pmId}), using $1 fallback: ${err}`);
           }
         }
 
@@ -118,15 +119,4 @@ export async function transferToken(
   const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
   const tx = await token.transfer(to, amount);
   return tx.wait();
-}
-
-/**
- * Format a token balance for display
- */
-export function formatTokenBalance(
-  balance: bigint,
-  decimals: number,
-  symbol: string
-): string {
-  return `${ethers.formatUnits(balance, decimals)} ${symbol}`;
 }

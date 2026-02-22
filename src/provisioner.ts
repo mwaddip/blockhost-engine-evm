@@ -66,6 +66,3 @@ export function getCommand(verb: string): string {
   return cmd;
 }
 
-export function getProvisionerName(): string {
-  return loadManifest()?.name ?? "unknown";
-}

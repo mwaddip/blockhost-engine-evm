@@ -73,6 +73,9 @@ export async function splitCommand(
   // Resolve token
   const resolved = await resolveToken(tokenArg, contract);
 
+  let sent = 0;
+  let failed = 0;
+
   if (resolved.isNative) {
     // Split native ETH
     const totalWei = ethers.parseEther(amountStr);
@@ -89,14 +92,20 @@ export async function splitCommand(
         : (totalWei * BigInt(ratios[i])) / 100n;
       remaining -= share;
 
-      const tx = await signer.sendTransaction({
-        to: recipients[i],
-        value: share,
-      });
-      const receipt = await tx.wait();
-      console.log(
-        `  ${recipientRoles[i]}: ${ethers.formatEther(share)} ETH (tx: ${receipt?.hash})`
-      );
+      try {
+        const tx = await signer.sendTransaction({
+          to: recipients[i],
+          value: share,
+        });
+        const receipt = await tx.wait();
+        console.log(
+          `  ${recipientRoles[i]}: ${ethers.formatEther(share)} ETH (tx: ${receipt?.hash})`
+        );
+        sent++;
+      } catch (err) {
+        console.error(`  ${recipientRoles[i]}: FAILED (${err})`);
+        failed++;
+      }
     }
   } else {
     // Split ERC20 token
@@ -117,17 +126,27 @@ export async function splitCommand(
         : (totalAmount * BigInt(ratios[i])) / 100n;
       remaining -= share;
 
-      const receipt = await transferToken(
-        resolved.address,
-        recipients[i],
-        share,
-        signer
-      );
-      console.log(
-        `  ${recipientRoles[i]}: ${ethers.formatUnits(share, decimals)} ${symbol} (tx: ${receipt?.hash})`
-      );
+      try {
+        const receipt = await transferToken(
+          resolved.address,
+          recipients[i],
+          share,
+          signer
+        );
+        console.log(
+          `  ${recipientRoles[i]}: ${ethers.formatUnits(share, decimals)} ${symbol} (tx: ${receipt?.hash})`
+        );
+        sent++;
+      } catch (err) {
+        console.error(`  ${recipientRoles[i]}: FAILED (${err})`);
+        failed++;
+      }
     }
   }
 
+  if (failed > 0) {
+    console.error(`Done. ${sent} sent, ${failed} failed.`);
+    process.exit(1);
+  }
   console.log("Done.");
 }

@@ -206,12 +206,16 @@ function parseMintTokenId(stdout: string): number | null {
  */
 async function markNftMinted(nftTokenId: number, ownerWallet: string, vmName: string): Promise<boolean> {
   const script = `
+import os, sys
 from blockhost.vm_db import get_database
 db = get_database()
-db.mark_nft_minted(${nftTokenId}, "${ownerWallet}")
+db.mark_nft_minted(int(os.environ["NFT_TOKEN_ID"]), os.environ["OWNER_WALLET"])
 `;
   return new Promise((resolve) => {
-    const proc = spawn("python3", ["-c", script], { cwd: WORKING_DIR });
+    const proc = spawn("python3", ["-c", script], {
+      cwd: WORKING_DIR,
+      env: { ...process.env, NFT_TOKEN_ID: String(nftTokenId), OWNER_WALLET: ownerWallet },
+    });
     proc.on("close", (code) => {
       if (code !== 0) {
         console.error(`[WARN] Failed to mark NFT ${nftTokenId} as minted for ${vmName}`);
@@ -382,21 +386,28 @@ export async function handleSubscriptionExtended(event: SubscriptionExtendedEven
   // Use Python to update the database and check if VM needs to be resumed
   // Returns "NEEDS_RESUME" if the VM was suspended and should be started
   const script = `
+import os
 from blockhost.vm_db import get_database
 
+vm_name = os.environ["VM_NAME"]
+additional_days = int(os.environ["ADDITIONAL_DAYS"])
+
 db = get_database()
-vm = db.get_vm('${vmName}')
+vm = db.get_vm(vm_name)
 if vm:
     old_status = vm.get('status', 'unknown')
-    db.extend_expiry('${vmName}', ${additionalDays})
-    print(f"Extended {vm['vm_name']} expiry by ${additionalDays} days")
+    db.extend_expiry(vm_name, additional_days)
+    print(f"Extended {vm['vm_name']} expiry by {additional_days} days")
     if old_status == 'suspended':
         print("NEEDS_RESUME")
 else:
-    print(f"VM ${vmName} not found in database")
+    print(f"VM {vm_name} not found in database")
 `;
 
-  const proc = spawn("python3", ["-c", script], { cwd: WORKING_DIR });
+  const proc = spawn("python3", ["-c", script], {
+    cwd: WORKING_DIR,
+    env: { ...process.env, VM_NAME: vmName, ADDITIONAL_DAYS: String(additionalDays) },
+  });
 
   let output = "";
   proc.stdout.on("data", (data) => { output += data.toString(); });

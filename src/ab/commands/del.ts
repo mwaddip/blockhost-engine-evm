@@ -3,7 +3,7 @@
  */
 
 import { loadAddressbook, saveAddressbook } from "../../fund-manager/addressbook";
-import { IMMUTABLE_ROLES } from "../index";
+import { assertMutable, assertValidName } from "../index";
 
 export async function delCommand(args: string[]): Promise<void> {
   if (args.length !== 1) {
@@ -12,11 +12,8 @@ export async function delCommand(args: string[]): Promise<void> {
   }
 
   const [name] = args;
-
-  if (IMMUTABLE_ROLES.has(name)) {
-    console.error(`Error: '${name}' is a reserved system role and cannot be modified.`);
-    process.exit(1);
-  }
+  assertValidName(name);
+  assertMutable(name);
 
   const book = loadAddressbook();
 

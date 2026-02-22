@@ -10,7 +10,6 @@ import { resolveAddress } from "../../fund-manager/addressbook";
 import {
   getAllTokenBalances,
   getTokenBalance,
-  ERC20_ABI,
 } from "../../fund-manager/token-utils";
 import { resolveToken, formatUsd } from "../cli-utils";
 

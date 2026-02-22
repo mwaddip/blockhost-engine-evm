@@ -39,14 +39,16 @@ export async function executeSend(
       value: ethers.parseEther(amountStr),
     });
     const receipt = await tx.wait();
-    return receipt!.hash;
+    if (!receipt) throw new Error("Transaction dropped from mempool");
+    return receipt.hash;
   }
 
   const token = new ethers.Contract(resolved.address, ERC20_ABI, provider);
   const decimals = Number(await token.decimals());
   const tokenAmount = ethers.parseUnits(amountStr, decimals);
   const receipt = await transferToken(resolved.address, toAddress, tokenAmount, signer);
-  return receipt!.hash;
+  if (!receipt) throw new Error("Transaction dropped from mempool");
+  return receipt.hash;
 }
 
 /**
