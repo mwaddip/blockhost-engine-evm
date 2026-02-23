@@ -466,7 +466,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/web3-auth-svc
+ExecStart=/usr/bin/node /usr/share/blockhost/web3-auth-svc.js
 Restart=on-failure
 RestartSec=5
 
