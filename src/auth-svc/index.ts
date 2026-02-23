@@ -2,7 +2,7 @@
  * web3-auth-svc — HTTPS signing server for web3 authentication.
  *
  * Serves the signing page and provides callback endpoints for the PAM module's
- * session-based authentication flow. Compiled to a standalone binary with bun.
+ * session-based authentication flow. Bundled with esbuild for deployment.
  *
  * Routes:
  *   GET /                           — Serve signing page HTML
