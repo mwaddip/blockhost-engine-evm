@@ -237,7 +237,7 @@ Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: all
-Depends: blockhost-common (>= 0.1.0), nodejs (>= 22), python3 (>= 3.10), python3-pycryptodome (>= 3.15), python3-ecdsa
+Depends: blockhost-common (>= 0.1.0), nodejs (>= 22), python3 (>= 3.10), python3-pycryptodome, python3-ecdsa
 Provides: bhcrypt
 Recommends: blockhost-provisioner-proxmox (>= 0.1.0) | blockhost-provisioner-libvirt (>= 0.1.0)
 Maintainer: Blockhost <admin@blockhost.io>
