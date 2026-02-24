@@ -343,6 +343,11 @@ cp "$WIZARD_SRC/templates/engine_evm/"*.html "$WIZARD_DST/templates/engine_evm/"
 # Install engine manifest
 cp "$PROJECT_DIR/engine.json" "$PKG_DIR/usr/share/blockhost/engine.json"
 
+# Install first-boot hook
+mkdir -p "$PKG_DIR/usr/share/blockhost/engine-hooks"
+cp "$PROJECT_DIR/scripts/first-boot-hook.sh" "$PKG_DIR/usr/share/blockhost/engine-hooks/first-boot.sh"
+chmod 755 "$PKG_DIR/usr/share/blockhost/engine-hooks/first-boot.sh"
+
 # Create blockhost-mint-nft CLI wrapper (used by engine's TypeScript handlers)
 cat > "$PKG_DIR/usr/bin/blockhost-mint-nft" << 'MINTEOF'
 #!/bin/sh
