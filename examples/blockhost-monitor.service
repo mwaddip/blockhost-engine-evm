@@ -19,7 +19,7 @@ StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
 PrivateTmp=true
-ReadWritePaths=/var/lib/blockhost
+ReadWritePaths=/var/lib/blockhost /run/blockhost
 
 [Install]
 WantedBy=multi-user.target
