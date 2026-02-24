@@ -11,10 +11,10 @@ Dependencies: python3-pycryptodome (>= 3.15), python3-ecdsa
 import argparse
 import sys
 
-from Crypto.Cipher import AES
-from Crypto.Hash import SHA256, keccak
-from Crypto.Protocol.KDF import HKDF
-from Crypto.Random import get_random_bytes
+from Cryptodome.Cipher import AES
+from Cryptodome.Hash import SHA256, keccak
+from Cryptodome.Protocol.KDF import HKDF
+from Cryptodome.Random import get_random_bytes
 from ecdsa import SECP256k1, SigningKey, VerifyingKey
 
 
