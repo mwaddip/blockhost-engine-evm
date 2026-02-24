@@ -202,27 +202,71 @@ function parseMintTokenId(stdout: string): number | null {
 }
 
 /**
- * Mark an NFT as minted in the VM database (awaited).
+ * Register a newly created VM in the database.
  */
-async function markNftMinted(nftTokenId: number, ownerWallet: string, vmName: string): Promise<boolean> {
+async function registerVm(
+  vmName: string,
+  vmid: number,
+  ip: string,
+  ipv6: string | null,
+  walletAddress: string,
+  expiryDays: number,
+): Promise<boolean> {
   const script = `
-import os, sys
+import os
 from blockhost.vm_db import get_database
 db = get_database()
-db.mark_nft_minted(int(os.environ["NFT_TOKEN_ID"]), os.environ["OWNER_WALLET"])
+db.register_vm(
+    name=os.environ["VM_NAME"],
+    vmid=int(os.environ["VMID"]),
+    ip=os.environ["IP"],
+    ipv6=os.environ.get("IPV6") or None,
+    wallet_address=os.environ["WALLET"],
+    expiry_days=int(os.environ["EXPIRY_DAYS"]),
+)
 `;
   return new Promise((resolve) => {
     const proc = spawn("python3", ["-c", script], {
       cwd: WORKING_DIR,
-      env: { ...process.env, NFT_TOKEN_ID: String(nftTokenId), OWNER_WALLET: ownerWallet },
+      env: {
+        ...process.env,
+        VM_NAME: vmName,
+        VMID: String(vmid),
+        IP: ip,
+        IPV6: ipv6 || "",
+        WALLET: walletAddress,
+        EXPIRY_DAYS: String(expiryDays),
+      },
+    });
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        console.error(`[WARN] Failed to register VM ${vmName} in database`);
+      }
+      resolve(code === 0);
+    });
+  });
+}
+
+/**
+ * Mark an NFT as minted on a VM record in the database.
+ */
+async function markNftMinted(nftTokenId: number, vmName: string): Promise<boolean> {
+  const script = `
+import os
+from blockhost.vm_db import get_database
+db = get_database()
+db.set_nft_minted(os.environ["VM_NAME"], int(os.environ["NFT_TOKEN_ID"]))
+`;
+  return new Promise((resolve) => {
+    const proc = spawn("python3", ["-c", script], {
+      cwd: WORKING_DIR,
+      env: { ...process.env, VM_NAME: vmName, NFT_TOKEN_ID: String(nftTokenId) },
     });
     proc.on("close", (code) => {
       if (code !== 0) {
         console.error(`[WARN] Failed to mark NFT ${nftTokenId} as minted for ${vmName}`);
-        resolve(false);
-      } else {
-        resolve(true);
       }
+      resolve(code === 0);
     });
   });
 }
@@ -301,6 +345,15 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
 
   console.log(`[INFO] VM summary: ip=${summary.ip}, vmid=${summary.vmid}`);
 
+  // Step 3b: Register VM in database
+  const registered = await registerVm(
+    vmName, summary.vmid, summary.ip, summary.ipv6 || null,
+    event.subscriber, expiryDays,
+  );
+  if (!registered) {
+    console.warn(`[WARN] VM ${vmName} created but database registration failed — continuing`);
+  }
+
   // Step 4: Encrypt connection details using user's signature
   let userEncrypted = "0x";
 
@@ -360,7 +413,7 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
   }
 
   // Step 7: Mark NFT minted in DB (awaited, not fire-and-forget)
-  await markNftMinted(actualTokenId, event.subscriber, vmName);
+  await markNftMinted(actualTokenId, vmName);
 
   console.log("==========================================\n");
 }
