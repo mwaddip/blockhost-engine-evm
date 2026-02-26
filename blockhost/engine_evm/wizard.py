@@ -3,7 +3,7 @@ EVM engine wizard plugin for BlockHost installer.
 
 Provides:
 - Flask Blueprint with /wizard/evm route and blockchain API routes
-- Pre-provisioner finalization steps: keypair, wallet, contracts, chain_config
+- Pre-provisioner finalization steps: wallet, contracts, chain_config
 - Post-nginx finalization steps: mint_nft, plan, revenue_share
 - Summary data and template for the summary page
 """
@@ -652,7 +652,6 @@ def encrypt_config(signature: str, plaintext: str) -> str:
 def get_progress_steps_meta() -> list[dict]:
     """Return step metadata for the progress UI."""
     pre = [
-        {"id": "keypair", "label": "Generating server keypair"},
         {"id": "wallet", "label": "Setting up deployer wallet"},
         {"id": "contracts", "label": "Deploying smart contracts"},
         {"id": "chain_config", "label": "Writing configuration files"},
@@ -676,7 +675,6 @@ def get_finalization_steps() -> list[tuple]:
     Each tuple: (step_id, display_name, callable[, hint])
     """
     return [
-        ("keypair", "Generating server keypair", finalize_keypair),
         ("wallet", "Setting up deployer wallet", finalize_wallet),
         (
             "contracts",
@@ -812,50 +810,6 @@ def _derive_address_from_key(private_key: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Pre-finalization step functions
 # ---------------------------------------------------------------------------
-
-
-def finalize_keypair(config: dict) -> tuple[bool, Optional[str]]:
-    """Generate server ECIES keypair (server.key + server.pubkey).
-
-    Uses ecdsa library for secp256k1 key generation (same as bhcrypt).
-    Idempotent: skips if both files already exist. If only server.key
-    exists, derives the public key from it rather than regenerating.
-    """
-    try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        server_key = CONFIG_DIR / "server.key"
-        server_pubkey = CONFIG_DIR / "server.pubkey"
-
-        # Idempotent: both files present, nothing to do
-        if server_key.exists() and server_pubkey.exists():
-            return True, None
-
-        from ecdsa import SECP256k1, SigningKey
-
-        if server_key.exists():
-            # Partial state: key exists, derive pubkey from it
-            priv_hex = server_key.read_text().strip()
-            sk = SigningKey.from_string(bytes.fromhex(priv_hex), curve=SECP256k1)
-        else:
-            # Generate fresh keypair
-            sk = SigningKey.generate(curve=SECP256k1)
-            priv_hex = sk.to_string().hex()
-
-            server_key.write_text(priv_hex)
-            _set_blockhost_ownership(server_key, 0o640)
-
-        # Derive uncompressed public key (04 || x || y)
-        vk = sk.get_verifying_key()
-        pub_hex = "0x04" + vk.to_string().hex()
-
-        server_pubkey.write_text(pub_hex)
-        _set_blockhost_ownership(server_pubkey, 0o644)
-
-        return True, None
-    except ImportError:
-        return False, "python3-ecdsa not installed"
-    except Exception as e:
-        return False, str(e)
 
 
 def finalize_wallet(config: dict) -> tuple[bool, Optional[str]]:
