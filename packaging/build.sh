@@ -348,6 +348,10 @@ mkdir -p "$PKG_DIR/usr/share/blockhost/engine-hooks"
 cp "$PROJECT_DIR/scripts/first-boot-hook.sh" "$PKG_DIR/usr/share/blockhost/engine-hooks/first-boot.sh"
 chmod 755 "$PKG_DIR/usr/share/blockhost/engine-hooks/first-boot.sh"
 
+# Install root agent action plugins
+mkdir -p "$PKG_DIR/usr/share/blockhost/root-agent-actions"
+cp "$PROJECT_DIR/scripts/root-agent-actions/"*.py "$PKG_DIR/usr/share/blockhost/root-agent-actions/"
+
 # Create blockhost-mint-nft CLI wrapper (used by engine's TypeScript handlers)
 cat > "$PKG_DIR/usr/bin/blockhost-mint-nft" << 'MINTEOF'
 #!/bin/sh
