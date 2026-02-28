@@ -61,8 +61,8 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/mwaddip/blockhost-engine.git
-cd blockhost-engine
+git clone https://github.com/mwaddip/blockhost-engine-evm.git
+cd blockhost-engine-evm
 npm install
 ```
 
@@ -380,7 +380,7 @@ npm run deploy:local
 ## Project Structure
 
 ```
-blockhost-engine/
+blockhost-engine-evm/
 ├── contracts/                 # Solidity smart contracts
 │   ├── BlockhostSubscriptions.sol
 │   └── mocks/                 # Test mocks

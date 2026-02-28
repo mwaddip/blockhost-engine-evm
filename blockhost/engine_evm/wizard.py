@@ -438,7 +438,7 @@ def _deploy_with_cast(job: dict, deployer_key_hex: str, rpc_url: str):
         job["status"] = "failed"
         job["message"] = (
             "Compiled contract artifacts not found. "
-            "Install blockhost-engine package or compile contracts with forge."
+            "Install blockhost-engine-evm package or compile contracts with forge."
         )
         return
 
@@ -944,7 +944,7 @@ def finalize_contracts(config: dict) -> tuple[bool, Optional[str]]:
         if not sub_artifact.exists():
             return False, (
                 "Contract artifacts not found at "
-                f"{CONTRACTS_DIR}. Install blockhost-engine package."
+                f"{CONTRACTS_DIR}. Install blockhost-engine-evm package."
             )
 
         if nft_artifact.exists():

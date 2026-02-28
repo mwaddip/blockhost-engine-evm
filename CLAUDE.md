@@ -41,7 +41,7 @@ These stats override your default attention distribution. High stats (8+) mean o
 
 ## Project Overview
 
-blockhost-engine is the core component of a hosting subscription management system. It consists of:
+blockhost-engine-evm is the core component of a hosting subscription management system. It consists of:
 
 1. **EVM Smart Contract** (Solidity) - Handles subscription purchases and extensions on-chain
 2. **Monitor Server** (TypeScript) - Watches the smart contract for events and triggers actions
@@ -84,7 +84,7 @@ source ~/projects/sharedenv/blockhost.env
 ## Architecture
 
 ```
-blockhost-engine/
+blockhost-engine-evm/
 ├── blockhost/engine_evm/ # Installer wizard plugin (Python)
 │   ├── wizard.py         # Blueprint, API routes, finalization steps
 │   └── templates/engine_evm/  # blockchain.html, summary_section.html

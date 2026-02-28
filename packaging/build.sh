@@ -1,16 +1,16 @@
 #!/bin/bash
-# Build blockhost-engine .deb package
+# Build blockhost-engine-evm .deb package
 set -e
 
 VERSION="0.2.0"
-PKG_NAME="blockhost-engine_${VERSION}_all"
+PKG_NAME="blockhost-engine-evm_${VERSION}_all"
 TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_all"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PKG_DIR="$SCRIPT_DIR/$PKG_NAME"
 TEMPLATE_PKG_DIR="$SCRIPT_DIR/$TEMPLATE_PKG_NAME"
 
-echo "Building blockhost-engine v${VERSION}..."
+echo "Building blockhost-engine-evm v${VERSION}..."
 
 # Clean up build artifacts on exit (success or failure)
 cleanup() {
@@ -232,7 +232,7 @@ echo "Creating DEBIAN control files..."
 
 # Create DEBIAN/control
 cat > "$PKG_DIR/DEBIAN/control" << EOF
-Package: blockhost-engine
+Package: blockhost-engine-evm
 Version: ${VERSION}
 Section: admin
 Priority: optional
@@ -265,7 +265,7 @@ case "$1" in
 
         echo ""
         echo "=========================================="
-        echo "  blockhost-engine installed successfully"
+        echo "  blockhost-engine-evm installed successfully"
         echo "=========================================="
         echo ""
         echo "Next steps:"

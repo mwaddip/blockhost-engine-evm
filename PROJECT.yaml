@@ -2,7 +2,7 @@
 # This file enables other Claude sessions to import this project as a submodule
 # and understand how to interact with it without reading the entire codebase.
 
-name: blockhost-engine
+name: blockhost-engine-evm
 version: "1.0.0"
 description: |
   Blockchain-based VM hosting subscription system. Users purchase subscriptions

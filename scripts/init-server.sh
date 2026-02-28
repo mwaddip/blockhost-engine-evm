@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - blockhost-common package (provides /etc/blockhost, /var/lib/blockhost)
-#   - blockhost-engine package (provides nft_tool)
+#   - blockhost-engine-evm package (provides nft_tool)
 #   - foundry (provides cast for wallet address derivation)
 
 set -euo pipefail
@@ -14,7 +14,7 @@ set -euo pipefail
 # Configuration directories (provided by blockhost-common)
 CONFIG_DIR="/etc/blockhost"
 DATA_DIR="/var/lib/blockhost"
-# Files owned by blockhost-engine
+# Files owned by blockhost-engine-evm
 SERVER_KEY_FILE="${CONFIG_DIR}/server.key"
 DEPLOYER_KEY_FILE="${CONFIG_DIR}/deployer.key"
 CONFIG_FILE="${CONFIG_DIR}/blockhost.yaml"
@@ -83,7 +83,7 @@ fi
 
 # Check nft_tool is available
 if ! command -v nft_tool &> /dev/null; then
-    echo "Error: nft_tool not found. Install blockhost-engine package."
+    echo "Error: nft_tool not found. Install blockhost-engine-evm package."
     exit 1
 fi
 

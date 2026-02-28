@@ -1,5 +1,5 @@
 {
-  "name": "blockhost-engine",
+  "name": "blockhost-engine-evm",
   "version": "0.2.0",
   "description": "Subscription management system with EVM smart contracts and monitoring server",
   "bin": {

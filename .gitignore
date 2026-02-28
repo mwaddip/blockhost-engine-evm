@@ -71,7 +71,7 @@ vms.json
 
 # Packaging artifacts
 packaging/*.deb
-packaging/blockhost-engine_*/
+packaging/blockhost-engine-evm_*/
 packaging/.forge-build/
 
 # Forge install leaks

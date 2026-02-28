@@ -42,7 +42,7 @@ async function deployNFTContract(
   if (!fs.existsSync(NFT_CONTRACT_PATH)) {
     throw new Error(
       `NFT contract not found at ${NFT_CONTRACT_PATH}. ` +
-      `Ensure blockhost-engine is installed`
+      `Ensure blockhost-engine-evm is installed`
     );
   }
 
@@ -173,7 +173,7 @@ function updateConfig(nftContractAddress: string, subscriptionContractAddress: s
     const header = `# Blockhost Web3/Blockchain Configuration
 # Updated by deploy script on ${new Date().toISOString()}
 #
-# Managed by: blockhost-common (template), blockhost-engine (populated)
+# Managed by: blockhost-common (template), blockhost-engine-evm (populated)
 
 `;
 
