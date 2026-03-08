@@ -9,6 +9,7 @@ Provides:
 """
 
 import grp
+import ipaddress
 import json
 import os
 import secrets
@@ -17,6 +18,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from flask import (
     Blueprint,
@@ -80,10 +82,25 @@ def validate_address(address: str) -> bool:
 
 
 def validate_rpc_url(url: str) -> bool:
-    """Validate an RPC URL: only http(s) schemes allowed (no file://, etc.)."""
+    """Validate that an RPC URL is a safe, non-internal HTTP(S) endpoint."""
     if not url or not isinstance(url, str):
         return False
-    return url.startswith("https://") or url.startswith("http://")
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            return False
+    except ValueError:
+        pass  # domain name, not IP literal — allow
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +311,8 @@ def api_balance():
                 "has_funds": balance_wei > 0,
             }
         )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "RPC request failed"}), 502
 
 
 @blueprint.route("/api/blockchain/deploy", methods=["POST"])
@@ -308,6 +325,9 @@ def api_deploy():
 
     if not deployer_key or not rpc_url:
         return jsonify({"error": "deployer_key and rpc_url required"}), 400
+
+    if not validate_rpc_url(rpc_url):
+        return jsonify({"error": "Invalid RPC URL"}), 400
 
     job_id = f"deploy-{secrets.token_hex(4)}"
     _deploy_jobs[job_id] = {
