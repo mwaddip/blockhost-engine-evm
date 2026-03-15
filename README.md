@@ -56,52 +56,17 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 - A provisioner package (e.g. `blockhost-provisioner-proxmox`) with a manifest
 - `python3-pycryptodome` and `python3-ecdsa` (crypto operations for bhcrypt)
 
-## Quick Start
+## Installation
 
-### 1. Clone and install
+This package is a component of the Blockhost system — it is not used standalone. Production installation is handled by the [blockhost-installer](https://github.com/mwaddip/blockhost-installer), which installs `blockhost-common`, a provisioner, and this engine as `.deb` packages. See [INSTALL.md](INSTALL.md) for manual package installation.
+
+## Development
 
 ```bash
 git clone https://github.com/mwaddip/blockhost-engine-evm.git
 cd blockhost-engine-evm
 npm install
-```
 
-### 2. Configure environment
-
-```bash
-cp examples/env.example .env
-# Edit .env with your deployer private key and RPC URL
-```
-
-### 3. Deploy contracts (Sepolia testnet)
-
-```bash
-source .env
-npm run deploy:sepolia
-```
-
-### 4. Initialize server
-
-```bash
-sudo ./scripts/init-server.sh
-```
-
-### 5. Generate signup page
-
-```bash
-python3 scripts/generate-signup-page.py --output /var/www/signup.html
-```
-
-### 6. Start monitor service
-
-```bash
-npm run monitor
-# Or use systemd: see examples/blockhost-monitor.service
-```
-
-## Development
-
-```bash
 npm run compile          # Compile Solidity contracts
 npm test                 # Run tests
 npm run test:coverage    # Run tests with coverage
