@@ -96,6 +96,8 @@ blockhost-engine-evm/
 │   ├── bhcrypt.py       # Crypto CLI (installed as bhcrypt)
 │   ├── mint_nft.py      # NFT minting (installed as blockhost-mint-nft)
 │   ├── deploy-contracts.sh  # Production contract deployer (installed as blockhost-deploy-contracts)
+│   ├── signup-template.html # Signup page HTML/CSS template (replaceable)
+│   └── signup-engine.js     # Signup page JS bundle (engine-owned)
 ├── test/                # Contract tests
 ├── src/                 # TypeScript server source
 │   ├── monitor/         # Contract event polling & processing
@@ -109,7 +111,7 @@ blockhost-engine-evm/
 │   ├── auth-svc/        # Web3 auth signing server (esbuild-bundled for VMs)
 │   └── root-agent/      # Root agent client (Unix socket, privilege separation)
 ├── auth-svc/            # Auth service assets
-│   └── signing-page/    # Signing page HTML (served by auth-svc on VMs)
+│   └── signing-page/    # Signing page (template.html + engine.js → index.html at build)
 └── examples/            # Deployment examples (systemd, env, config)
 ```
 

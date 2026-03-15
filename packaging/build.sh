@@ -373,6 +373,7 @@ cp "$PROJECT_DIR/contracts/src/AccessCredentialNFT.sol" "$PKG_DIR/usr/share/bloc
 
 # Static resources
 cp "$PROJECT_DIR/scripts/signup-template.html" "$PKG_DIR/usr/share/blockhost/"
+cp "$PROJECT_DIR/scripts/signup-engine.js" "$PKG_DIR/usr/share/blockhost/"
 
 # Systemd service
 cp "$PROJECT_DIR/examples/blockhost-monitor.service" "$PKG_DIR/lib/systemd/system/blockhost-monitor.service"
@@ -464,8 +465,24 @@ exec /usr/bin/node /usr/share/blockhost/web3-auth-svc.js "$@"
 WRAPEOF
     chmod 755 "$TEMPLATE_PKG_DIR/usr/bin/web3-auth-svc"
 
-    # Copy signing page HTML
-    cp "$PROJECT_DIR/auth-svc/signing-page/index.html" "$TEMPLATE_PKG_DIR/usr/share/blockhost/signing-page/index.html"
+    # Generate signing page: inline engine.js into template, inject accent color
+    SIGNING_TEMPLATE="$PROJECT_DIR/auth-svc/signing-page/template.html"
+    SIGNING_ENGINE="$PROJECT_DIR/auth-svc/signing-page/engine.js"
+    SIGNING_OUTPUT="$TEMPLATE_PKG_DIR/usr/share/blockhost/signing-page/index.html"
+
+    ACCENT_COLOR=$(python3 -c "import json; print(json.load(open('$PROJECT_DIR/engine.json')).get('accent_color', '#627EEA'))")
+
+    python3 - "$SIGNING_TEMPLATE" "$SIGNING_ENGINE" "$ACCENT_COLOR" "$SIGNING_OUTPUT" << 'PYEOF'
+import sys
+template_path, engine_path, accent_color, output_path = sys.argv[1:5]
+template = open(template_path).read()
+engine_js = open(engine_path).read()
+result = template.replace('<script src="engine.js"></script>', '<script>\n' + engine_js + '\n</script>')
+result = result.replace('{{PRIMARY_COLOR}}', accent_color)
+with open(output_path, 'w') as f:
+    f.write(result)
+PYEOF
+    echo "Signing page generated with accent color: $ACCENT_COLOR"
 
     # Create systemd unit
     cat > "$TEMPLATE_PKG_DIR/lib/systemd/system/web3-auth-svc.service" << 'SVCEOF'

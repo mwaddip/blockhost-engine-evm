@@ -389,8 +389,9 @@ blockhost-engine-evm/
 │   ├── mint_nft.py            # NFT minting (installed as blockhost-mint-nft)
 │   ├── deploy.ts              # Contract deployment (Hardhat, development)
 │   ├── deploy-contracts.sh    # Contract deployment (production, no Hardhat)
-│   ├── generate-signup-page.py
-│   └── signup-template.html
+│   ├── generate-signup-page.py # Combines template + engine.js → signup.html
+│   ├── signup-template.html   # Signup page HTML/CSS template (replaceable)
+│   └── signup-engine.js       # Signup page JS bundle (engine-owned)
 ├── blockhost/engine_evm/       # Installer wizard plugin
 │   ├── wizard.py              # Blueprint, API routes, finalization steps
 │   └── templates/engine_evm/  # Wizard page and summary templates
@@ -407,7 +408,7 @@ blockhost-engine-evm/
 │   ├── auth-svc/              # Web3 auth signing server (esbuild-bundled)
 │   └── root-agent/            # Root agent client (privilege separation)
 ├── auth-svc/                  # Auth service assets
-│   └── signing-page/          # Signing page HTML (served by auth-svc)
+│   └── signing-page/          # Signing page (template.html + engine.js)
 ├── test/                      # Contract tests
 ├── examples/                  # Deployment examples
 │   ├── blockhost-monitor.service
