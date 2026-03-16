@@ -3,7 +3,6 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../fund-manager/types";
 import { SUBSCRIPTION_ABI } from "../fund-manager/token-utils";
 
 /**
@@ -57,6 +56,11 @@ export function createProviderAndContract(): {
 
   if (!contractAddress) {
     console.error("Error: BLOCKHOST_CONTRACT environment variable not set");
+    process.exit(1);
+  }
+
+  if (!ethers.isAddress(contractAddress)) {
+    console.error(`Error: BLOCKHOST_CONTRACT is not a valid address: ${contractAddress}`);
     process.exit(1);
   }
 

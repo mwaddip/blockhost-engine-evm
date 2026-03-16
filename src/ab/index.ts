@@ -21,6 +21,20 @@ import { initCommand } from "./commands/init";
 
 export const IMMUTABLE_ROLES = new Set(["server", "admin", "hot", "dev", "broker"]);
 
+export function assertMutable(name: string): void {
+  if (IMMUTABLE_ROLES.has(name)) {
+    console.error(`Error: '${name}' is a reserved system role and cannot be modified.`);
+    process.exit(1);
+  }
+}
+
+export function assertValidName(name: string): void {
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    console.error(`Error: invalid name '${name}'. Only alphanumeric, hyphen, and underscore allowed.`);
+    process.exit(1);
+  }
+}
+
 function printUsage(): void {
   console.log("ab (addressbook) — manage wallet entries in addressbook.json");
   console.log("");

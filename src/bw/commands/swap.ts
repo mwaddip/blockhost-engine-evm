@@ -13,6 +13,9 @@ import { ERC20_ABI } from "../../fund-manager/token-utils";
 import { getChainConfig, UNISWAP_V2_ROUTER_ABI } from "../../fund-manager/chain-pools";
 import { resolveToken } from "../cli-utils";
 
+const SLIPPAGE_PERCENT = 2n; // 2% slippage tolerance
+const DEADLINE_SECONDS = 300; // 5-minute transaction deadline
+
 /**
  * Core swap operation — swap ERC20 token for native ETH via Uniswap V2.
  * Returns the transaction hash.
@@ -48,11 +51,11 @@ export async function executeSwap(
     await approveTx.wait();
   }
 
-  // Get expected output with 2% slippage tolerance
+  // Get expected output with slippage tolerance
   const path = [resolved.address, chainConfig.weth];
   const amounts: bigint[] = await router.getAmountsOut(amountIn, path);
-  const minOut = (amounts[1] * 98n) / 100n;
-  const deadline = Math.floor(Date.now() / 1000) + 300;
+  const minOut = (amounts[1] * (100n - SLIPPAGE_PERCENT)) / 100n;
+  const deadline = Math.floor(Date.now() / 1000) + DEADLINE_SECONDS;
 
   const tx = await router.swapExactTokensForETH(
     amountIn,
@@ -62,7 +65,8 @@ export async function executeSwap(
     deadline
   );
   const receipt = await tx.wait();
-  return receipt!.hash;
+  if (!receipt) throw new Error("Swap transaction dropped from mempool");
+  return receipt.hash;
 }
 
 /**

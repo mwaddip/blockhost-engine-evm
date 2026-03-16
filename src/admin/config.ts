@@ -3,11 +3,10 @@
  */
 
 import * as fs from "fs";
-import * as yaml from "js-yaml";
 import { ethers } from "ethers";
 import type { AdminConfig, CommandDatabase, DestinationMode } from "./types";
+import { loadBlockhostConfig } from "../config/blockhost-config";
 
-const BLOCKHOST_CONFIG_FILE = "/etc/blockhost/blockhost.yaml";
 const ADMIN_COMMANDS_FILE = "/etc/blockhost/admin-commands.json";
 
 /**
@@ -16,11 +15,11 @@ const ADMIN_COMMANDS_FILE = "/etc/blockhost/admin-commands.json";
  */
 export function loadAdminConfig(): AdminConfig | null {
   try {
-    if (!fs.existsSync(BLOCKHOST_CONFIG_FILE)) {
+    const config = loadBlockhostConfig();
+    if (!config) {
       return null;
     }
 
-    const config = yaml.load(fs.readFileSync(BLOCKHOST_CONFIG_FILE, "utf8")) as Record<string, unknown>;
     const admin = config.admin as Record<string, unknown> | undefined;
 
     if (!admin || !admin.wallet_address) {
@@ -76,7 +75,7 @@ export function loadCommandDatabase(): CommandDatabase | null {
  * Get the expected destination address based on configuration
  * Returns null if no check is needed (mode: 'any')
  */
-export function getExpectedDestination(
+function getExpectedDestination(
   config: AdminConfig,
   serverPublicKey: string
 ): string | null {
@@ -128,12 +127,10 @@ export function getServerPrivateKeyPath(): string {
  */
 export function loadServerPublicKey(): string | null {
   try {
-    const configPath = BLOCKHOST_CONFIG_FILE;
-    if (!fs.existsSync(configPath)) {
+    const config = loadBlockhostConfig();
+    if (!config) {
       return null;
     }
-
-    const config = yaml.load(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>;
     return (config.server_public_key as string) || null;
   } catch (err) {
     console.error(`[ADMIN] Error loading server public key: ${err}`);

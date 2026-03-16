@@ -2,7 +2,7 @@
 # This file enables other Claude sessions to import this project as a submodule
 # and understand how to interact with it without reading the entire codebase.
 
-name: blockhost-engine
+name: blockhost-engine-evm
 version: "1.0.0"
 description: |
   Blockchain-based VM hosting subscription system. Users purchase subscriptions
@@ -69,8 +69,9 @@ components:
     path: src/reconcile/
     description: |
       Periodic NFT reconciliation to fix state drift from partial failures.
-      Compares on-chain totalSupply() with local reserved_nft_tokens map
-      and marks tokens as minted if they exist on-chain but not locally.
+      For each active/suspended VM where nft_minted !== true, checks on-chain
+      for the NFT and marks it as minted if found. Also detects ownership
+      transfers and updates VM GECOS fields.
 
   signup_page:
     path: scripts/generate-signup-page.py
@@ -103,14 +104,6 @@ dependencies:
       configured for NFT-based web3 SSH authentication.
       Installed as a separate .deb package.
 
-  libpam-web3-tools:
-    package: libpam-web3-tools
-    version: ">= 0.5.0"
-    description: |
-      Provides AccessCredentialNFT contract source and ABI for deployment,
-      plus signing page generator for per-NFT authentication pages.
-      Contract at: /usr/share/libpam-web3-tools/contracts/
-      Signing page generator at: /usr/share/libpam-web3-tools/signing-page/
 
 # Environment setup
 environment:
@@ -173,7 +166,7 @@ deployment:
       - /etc/blockhost/blockhost.yaml (server keypair, public secret, admin wallet)
       - /etc/blockhost/web3-defaults.yaml (blockchain config)
       - /etc/blockhost/admin-commands.json (admin command definitions)
-      - /var/lib/blockhost/vms.json (VM database with reserved_nft_tokens)
+      - /var/lib/blockhost/vms.json (VM database with NFT state)
 
   vm:
     template: debian-12-web3-template (VMID 9001)

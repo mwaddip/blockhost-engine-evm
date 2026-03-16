@@ -8,33 +8,11 @@
  * Prints the transaction hash to stdout.
  */
 
-import * as fs from "fs";
-import * as yaml from "js-yaml";
 import { ethers } from "ethers";
 import type { Addressbook } from "../../fund-manager/types";
 import { resolveWallet } from "../../fund-manager/addressbook";
-
-const WEB3_DEFAULTS_PATH = "/etc/blockhost/web3-defaults.yaml";
-
-const NFT_WRITE_ABI = [
-  "function updateUserEncrypted(uint256, bytes) external",
-];
-
-function loadNftContract(): string {
-  if (!fs.existsSync(WEB3_DEFAULTS_PATH)) {
-    throw new Error(`Config not found: ${WEB3_DEFAULTS_PATH}`);
-  }
-
-  const raw = yaml.load(fs.readFileSync(WEB3_DEFAULTS_PATH, "utf8")) as Record<string, unknown>;
-  const blockchain = raw.blockchain as Record<string, unknown> | undefined;
-
-  const nftContract = blockchain?.nft_contract as string | undefined;
-  if (!nftContract || !ethers.isAddress(nftContract)) {
-    throw new Error("blockchain.nft_contract not set or invalid in web3-defaults.yaml");
-  }
-
-  return nftContract;
-}
+import { loadNftContractAddress } from "../../config/web3-config";
+import { NFT_WRITE_ABI } from "../../config/nft-abi";
 
 export async function setCommand(
   args: string[],
@@ -71,8 +49,8 @@ export async function setCommand(
   }
 
   // Validate hex data
-  if (!userEncrypted.startsWith("0x")) {
-    console.error("Error: userEncrypted must be hex-encoded (0x prefix)");
+  if (!/^0x[0-9a-fA-F]+$/.test(userEncrypted)) {
+    console.error("Error: userEncrypted must be valid hex (0x prefix + hex chars)");
     process.exit(1);
   }
 
@@ -82,10 +60,14 @@ export async function setCommand(
     process.exit(1);
   }
 
-  const nftContractAddress = loadNftContract();
+  const nftContractAddress = loadNftContractAddress();
   const nftContract = new ethers.Contract(nftContractAddress, NFT_WRITE_ABI, signer);
 
   const tx = await nftContract.updateUserEncrypted(nftId, userEncrypted);
   const receipt = await tx.wait();
-  console.log(receipt!.hash);
+  if (!receipt) {
+    console.error("Error: transaction dropped from mempool");
+    process.exit(1);
+  }
+  console.log(receipt.hash);
 }

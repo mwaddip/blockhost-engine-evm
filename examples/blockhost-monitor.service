@@ -11,6 +11,7 @@ Group=blockhost
 Environment=HOME=/var/lib/blockhost
 Environment=NODE_OPTIONS=--dns-result-order=ipv4first
 EnvironmentFile=/opt/blockhost/.env
+ExecStartPre=+/bin/bash -c 'chown root:blockhost /run/blockhost && chmod 2775 /run/blockhost'
 ExecStart=/usr/bin/node /usr/share/blockhost/monitor.js
 Restart=always
 RestartSec=10
@@ -19,7 +20,7 @@ StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
 PrivateTmp=true
-ReadWritePaths=/var/lib/blockhost
+ReadWritePaths=/var/lib/blockhost /run/blockhost
 
 [Install]
 WantedBy=multi-user.target

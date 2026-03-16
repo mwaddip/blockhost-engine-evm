@@ -40,7 +40,8 @@ export async function executeWithdraw(
   const contract = new ethers.Contract(contractAddress, SUBSCRIPTION_ABI, serverWallet);
   const tx = await contract.withdrawFunds(tokenAddress, toAddress);
   const receipt = await tx.wait();
-  return receipt!.hash;
+  if (!receipt) throw new Error("Withdrawal transaction dropped from mempool");
+  return receipt.hash;
 }
 
 /**

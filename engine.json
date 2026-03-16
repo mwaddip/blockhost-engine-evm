@@ -2,7 +2,9 @@
   "name": "evm",
   "version": "0.1.0",
   "display_name": "EVM (Ethereum/Polygon)",
+  "accent_color": "#627EEA",
   "setup": {
+    "first_boot_hook": "/usr/share/blockhost/engine-hooks/first-boot.sh",
     "wizard_module": "blockhost.engine_evm.wizard",
     "finalization_steps": ["wallet", "contracts", "chain_config"],
     "post_finalization_steps": ["mint_nft", "plan", "revenue_share"]

@@ -3,6 +3,7 @@
  * Uses polling to fetch logs (compatible with public RPCs that don't support filters)
  */
 
+import * as fs from "fs";
 import { ethers } from "ethers";
 import {
   handleSubscriptionCreated,
@@ -45,6 +46,34 @@ const CONTRACT_ABI = [
 ];
 
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+const PID_FILE = "/run/blockhost/monitor.pid";
+
+/**
+ * Acquire a PID lock. Exits if another monitor instance is running.
+ */
+function acquirePidLock(): void {
+  if (fs.existsSync(PID_FILE)) {
+    const oldPid = parseInt(fs.readFileSync(PID_FILE, "utf8").trim(), 10);
+    if (!isNaN(oldPid)) {
+      try {
+        process.kill(oldPid, 0); // Check if process exists
+        console.error(`Error: another monitor instance is running (PID ${oldPid})`);
+        process.exit(1);
+      } catch {
+        // Process doesn't exist — stale PID file, safe to overwrite
+      }
+    }
+  }
+  fs.writeFileSync(PID_FILE, String(process.pid));
+}
+
+function releasePidLock(): void {
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch {
+    // Ignore — file may already be gone
+  }
+}
 
 async function processLogs(
   contract: ethers.Contract,
@@ -127,7 +156,7 @@ async function processLogs(
           break;
 
         case "FundsWithdrawn":
-          console.log(`[INFO] FundsWithdrawn: ${ethers.formatUnits(parsed.args[2], 6)} of ${parsed.args[0]} to ${parsed.args[1]} - tx: ${txHash}`);
+          console.log(`[INFO] FundsWithdrawn: ${parsed.args[2]} wei of ${parsed.args[0]} to ${parsed.args[1]} - tx: ${txHash}`);
           break;
       }
     } catch (err) {
@@ -137,6 +166,8 @@ async function processLogs(
 }
 
 async function main() {
+  acquirePidLock();
+
   // Load configuration from environment
   const rpcUrl = process.env.RPC_URL;
   const contractAddress = process.env.BLOCKHOST_CONTRACT;
@@ -148,6 +179,11 @@ async function main() {
 
   if (!contractAddress) {
     console.error("Error: BLOCKHOST_CONTRACT environment variable not set");
+    process.exit(1);
+  }
+
+  if (!ethers.isAddress(contractAddress)) {
+    console.error(`Error: BLOCKHOST_CONTRACT is not a valid address: ${contractAddress}`);
     process.exit(1);
   }
 
@@ -210,25 +246,31 @@ async function main() {
           lastProcessedBlock = currentBlock;
         }
 
-        // Run NFT reconciliation periodically (non-blocking health check)
+        // Run NFT reconciliation periodically
         if (shouldRunReconciliation()) {
-          runReconciliation(provider).catch((err) => {
+          try {
+            await runReconciliation(provider);
+          } catch (err) {
             console.error(`[RECONCILE] Error: ${err}`);
-          });
+          }
         }
 
         // Run fund withdrawal & distribution cycle periodically
         if (shouldRunFundCycle()) {
-          runFundCycle(provider).catch((err) => {
+          try {
+            await runFundCycle(provider);
+          } catch (err) {
             console.error(`[FUND] Error: ${err}`);
-          });
+          }
         }
 
         // Check gas balance and swap if needed
         if (shouldRunGasCheck()) {
-          runGasCheck(provider).catch((err) => {
+          try {
+            await runGasCheck(provider);
+          } catch (err) {
             console.error(`[GAS] Error: ${err}`);
-          });
+          }
         }
       } catch (err) {
         console.error(`Polling error: ${err}`);
@@ -245,6 +287,7 @@ async function main() {
     if (adminConfig) {
       await shutdownAdminCommands();
     }
+    releasePidLock();
     setTimeout(() => process.exit(0), 1000);
   });
 

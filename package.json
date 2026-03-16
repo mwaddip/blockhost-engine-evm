@@ -1,6 +1,6 @@
 {
-  "name": "blockhost-engine",
-  "version": "0.1.0",
+  "name": "blockhost-engine-evm",
+  "version": "0.2.0",
   "description": "Subscription management system with EVM smart contracts and monitoring server",
   "bin": {
     "bw": "./src/bw/index.ts",
@@ -24,6 +24,6 @@
     "tsx": "^4.21.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }

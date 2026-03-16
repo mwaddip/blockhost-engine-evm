@@ -1,19 +1,23 @@
 #!/bin/bash
-# Build blockhost-engine .deb package
+# Build blockhost-engine-evm .deb package
 set -e
 
-VERSION="0.1.0"
-PKG_NAME="blockhost-engine_${VERSION}_all"
+VERSION="0.2.0"
+PKG_NAME="blockhost-engine-evm_${VERSION}_all"
+TEMPLATE_PKG_NAME="blockhost-auth-svc_${VERSION}_all"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PKG_DIR="$SCRIPT_DIR/$PKG_NAME"
+TEMPLATE_PKG_DIR="$SCRIPT_DIR/$TEMPLATE_PKG_NAME"
 
-echo "Building blockhost-engine v${VERSION}..."
+echo "Building blockhost-engine-evm v${VERSION}..."
 
 # Clean up build artifacts on exit (success or failure)
 cleanup() {
   rm -rf "$PKG_DIR"
+  rm -rf "$TEMPLATE_PKG_DIR"
   rm -rf "$SCRIPT_DIR/.forge-build"
+  rm -f "$SCRIPT_DIR/web3-auth-svc.js"
 }
 trap cleanup EXIT
 
@@ -34,7 +38,7 @@ echo "Bundling monitor with esbuild..."
 npx esbuild "$PROJECT_DIR/src/monitor/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/monitor.js"
 
@@ -52,7 +56,7 @@ echo "Bundling bw CLI with esbuild..."
 npx esbuild "$PROJECT_DIR/src/bw/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/bw.js"
 
@@ -77,7 +81,7 @@ echo "Bundling ab CLI with esbuild..."
 npx esbuild "$PROJECT_DIR/src/ab/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/ab.js"
 
@@ -102,7 +106,7 @@ echo "Bundling is CLI with esbuild..."
 npx esbuild "$PROJECT_DIR/src/is/index.ts" \
     --bundle \
     --platform=node \
-    --target=node18 \
+    --target=node22 \
     --minify \
     --outfile="$PKG_DIR/usr/share/blockhost/is.js"
 
@@ -123,6 +127,26 @@ ISEOF
 chmod 755 "$PKG_DIR/usr/bin/is"
 
 # ============================================
+# Bundle auth-svc with esbuild
+# ============================================
+echo ""
+echo "Bundling auth-svc with esbuild..."
+
+AUTH_SVC_BUNDLE="$SCRIPT_DIR/web3-auth-svc.js"
+
+npx esbuild "$PROJECT_DIR/src/auth-svc/index.ts" \
+    --bundle --platform=node --target=node22 --minify \
+    --outfile="$AUTH_SVC_BUNDLE"
+
+if [ ! -f "$AUTH_SVC_BUNDLE" ]; then
+    echo "ERROR: Failed to bundle auth-svc"
+    exit 1
+fi
+
+AUTH_SVC_SIZE=$(du -h "$AUTH_SVC_BUNDLE" | cut -f1)
+echo "auth-svc bundled: $AUTH_SVC_SIZE"
+
+# ============================================
 # Compile Solidity contracts with Foundry
 # ============================================
 echo ""
@@ -138,8 +162,11 @@ if command -v forge &> /dev/null; then
     rm -rf "$FORGE_BUILD_DIR"
     mkdir -p "$FORGE_BUILD_DIR/src"
 
-    # Copy contract source
+    # Copy contract sources
     cp "$PROJECT_DIR/contracts/BlockhostSubscriptions.sol" "$FORGE_BUILD_DIR/src/"
+
+    # Copy NFT contract source
+    cp "$PROJECT_DIR/contracts/src/AccessCredentialNFT.sol" "$FORGE_BUILD_DIR/src/"
 
     # Create foundry.toml
     cat > "$FORGE_BUILD_DIR/foundry.toml" << 'TOML'
@@ -147,7 +174,7 @@ if command -v forge &> /dev/null; then
 src = "src"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.20"
+solc_version = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 TOML
@@ -173,7 +200,7 @@ TOML
         exit 1
     }
 
-    # Check for compiled artifact
+    # Check for compiled artifacts
     COMPILED_ARTIFACT="$FORGE_BUILD_DIR/out/BlockhostSubscriptions.sol/BlockhostSubscriptions.json"
     if [ -f "$COMPILED_ARTIFACT" ]; then
         echo "Contract compiled successfully: $COMPILED_ARTIFACT"
@@ -182,6 +209,13 @@ TOML
     else
         echo "Warning: Compiled artifact not found at expected path"
         ls -la "$FORGE_BUILD_DIR/out/" 2>/dev/null || true
+    fi
+
+    # Copy NFT contract artifact if compiled
+    NFT_ARTIFACT="$FORGE_BUILD_DIR/out/AccessCredentialNFT.sol/AccessCredentialNFT.json"
+    if [ -f "$NFT_ARTIFACT" ]; then
+        cp "$NFT_ARTIFACT" "$PKG_DIR/usr/share/blockhost/contracts/"
+        echo "Copied AccessCredentialNFT artifact to package"
     fi
 
 else
@@ -198,12 +232,13 @@ echo "Creating DEBIAN control files..."
 
 # Create DEBIAN/control
 cat > "$PKG_DIR/DEBIAN/control" << EOF
-Package: blockhost-engine
+Package: blockhost-engine-evm
 Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: all
-Depends: blockhost-common (>= 0.1.0), libpam-web3-tools (>= 0.5.0), nodejs (>= 18), python3 (>= 3.10)
+Depends: blockhost-common (>= 0.1.0), nodejs (>= 22), python3 (>= 3.10), python3-pycryptodome, python3-ecdsa
+Provides: bhcrypt
 Recommends: blockhost-provisioner-proxmox (>= 0.1.0) | blockhost-provisioner-libvirt (>= 0.1.0)
 Maintainer: Blockhost <admin@blockhost.io>
 Description: Blockchain-based VM hosting subscription engine
@@ -230,7 +265,7 @@ case "$1" in
 
         echo ""
         echo "=========================================="
-        echo "  blockhost-engine installed successfully"
+        echo "  blockhost-engine-evm installed successfully"
         echo "=========================================="
         echo ""
         echo "Next steps:"
@@ -289,6 +324,10 @@ cp "$PROJECT_DIR/scripts/generate-signup-page.py" "$PKG_DIR/usr/bin/blockhost-ge
 cp "$PROJECT_DIR/scripts/deploy-contracts.sh" "$PKG_DIR/usr/bin/blockhost-deploy-contracts"
 chmod 755 "$PKG_DIR/usr/bin/"*
 
+# bhcrypt (Python crypto CLI)
+cp "$PROJECT_DIR/scripts/bhcrypt.py" "$PKG_DIR/usr/bin/bhcrypt"
+chmod 755 "$PKG_DIR/usr/bin/bhcrypt"
+
 # Install mint_nft as importable Python module (used by wizard finalization)
 mkdir -p "$PKG_DIR/usr/lib/python3/dist-packages/blockhost"
 cp "$PROJECT_DIR/scripts/mint_nft.py" "$PKG_DIR/usr/lib/python3/dist-packages/blockhost/mint_nft.py"
@@ -304,6 +343,15 @@ cp "$WIZARD_SRC/templates/engine_evm/"*.html "$WIZARD_DST/templates/engine_evm/"
 # Install engine manifest
 cp "$PROJECT_DIR/engine.json" "$PKG_DIR/usr/share/blockhost/engine.json"
 
+# Install first-boot hook
+mkdir -p "$PKG_DIR/usr/share/blockhost/engine-hooks"
+cp "$PROJECT_DIR/scripts/first-boot-hook.sh" "$PKG_DIR/usr/share/blockhost/engine-hooks/first-boot.sh"
+chmod 755 "$PKG_DIR/usr/share/blockhost/engine-hooks/first-boot.sh"
+
+# Install root agent action plugins
+mkdir -p "$PKG_DIR/usr/share/blockhost/root-agent-actions"
+cp "$PROJECT_DIR/scripts/root-agent-actions/"*.py "$PKG_DIR/usr/share/blockhost/root-agent-actions/"
+
 # Create blockhost-mint-nft CLI wrapper (used by engine's TypeScript handlers)
 cat > "$PKG_DIR/usr/bin/blockhost-mint-nft" << 'MINTEOF'
 #!/bin/sh
@@ -313,15 +361,19 @@ chmod 755 "$PKG_DIR/usr/bin/blockhost-mint-nft"
 
 # Deployment scripts (need Hardhat/Node.js for one-time deployment)
 cp "$PROJECT_DIR/package.json" "$PROJECT_DIR/package-lock.json" "$PKG_DIR/opt/blockhost/"
-cp "$PROJECT_DIR/tsconfig.json" "$PROJECT_DIR/hardhat.config.ts" "$PKG_DIR/opt/blockhost/"
+cp "$PROJECT_DIR/tsconfig.json" "$PKG_DIR/opt/blockhost/"
 cp "$PROJECT_DIR/scripts/deploy.ts" "$PROJECT_DIR/scripts/create-plan.ts" "$PKG_DIR/opt/blockhost/scripts/"
 
 # Contract sources (for deployment/reference)
 cp "$PROJECT_DIR/contracts/BlockhostSubscriptions.sol" "$PKG_DIR/opt/blockhost/contracts/"
 cp "$PROJECT_DIR/contracts/mocks/"*.sol "$PKG_DIR/opt/blockhost/contracts/mocks/"
 
+# NFT contract source (for reference/redeployment)
+cp "$PROJECT_DIR/contracts/src/AccessCredentialNFT.sol" "$PKG_DIR/usr/share/blockhost/contracts/"
+
 # Static resources
 cp "$PROJECT_DIR/scripts/signup-template.html" "$PKG_DIR/usr/share/blockhost/"
+cp "$PROJECT_DIR/scripts/signup-engine.js" "$PKG_DIR/usr/share/blockhost/"
 
 # Systemd service
 cp "$PROJECT_DIR/examples/blockhost-monitor.service" "$PKG_DIR/lib/systemd/system/blockhost-monitor.service"
@@ -364,7 +416,9 @@ echo "  /usr/share/blockhost/engine.json - Engine manifest"
 echo "  /usr/bin/blockhost-init         - Server initialization script"
 echo "  /usr/bin/blockhost-generate-signup - Signup page generator"
 echo "  /opt/blockhost/                 - Deployment scripts (require npm install)"
-echo "  /usr/share/blockhost/contracts/ - Compiled contract artifacts"
+echo "  /usr/bin/bhcrypt                 - Crypto CLI (keypair gen, encrypt/decrypt)"
+echo "  /usr/share/blockhost/contracts/BlockhostSubscriptions.json - Subscription contract artifact"
+echo "  /usr/share/blockhost/contracts/AccessCredentialNFT.json - NFT contract artifact"
 echo "  /lib/systemd/system/            - Systemd service unit"
 
 # Show contract compilation status
@@ -385,4 +439,140 @@ if [ -d "$(dirname "$PACKAGES_HOST_DIR")" ]; then
     cp "$SCRIPT_DIR/${PKG_NAME}.deb" "$PACKAGES_HOST_DIR/"
     echo ""
     echo "Copied to: $PACKAGES_HOST_DIR/${PKG_NAME}.deb"
+fi
+
+# ============================================
+# Build template package: blockhost-auth-svc
+# (installed on VMs, not the host)
+# ============================================
+if [ -f "$AUTH_SVC_BUNDLE" ]; then
+    echo ""
+    echo "=========================================="
+    echo "Building template package: blockhost-auth-svc v${VERSION}..."
+    echo "=========================================="
+
+    rm -rf "$TEMPLATE_PKG_DIR"
+    mkdir -p "$TEMPLATE_PKG_DIR"/{DEBIAN,usr/share/blockhost/signing-page,lib/systemd/system,usr/lib/tmpfiles.d}
+
+    # Copy bundled JS and create wrapper script
+    mkdir -p "$TEMPLATE_PKG_DIR/usr/share/blockhost"
+    cp "$AUTH_SVC_BUNDLE" "$TEMPLATE_PKG_DIR/usr/share/blockhost/web3-auth-svc.js"
+
+    mkdir -p "$TEMPLATE_PKG_DIR/usr/bin"
+    cat > "$TEMPLATE_PKG_DIR/usr/bin/web3-auth-svc" << 'WRAPEOF'
+#!/bin/sh
+exec /usr/bin/node /usr/share/blockhost/web3-auth-svc.js "$@"
+WRAPEOF
+    chmod 755 "$TEMPLATE_PKG_DIR/usr/bin/web3-auth-svc"
+
+    # Generate signing page: inline engine.js into template, inject accent color
+    SIGNING_TEMPLATE="$PROJECT_DIR/auth-svc/signing-page/template.html"
+    SIGNING_ENGINE="$PROJECT_DIR/auth-svc/signing-page/engine.js"
+    SIGNING_OUTPUT="$TEMPLATE_PKG_DIR/usr/share/blockhost/signing-page/index.html"
+
+    ACCENT_COLOR=$(python3 -c "import json; print(json.load(open('$PROJECT_DIR/engine.json')).get('accent_color', '#627EEA'))")
+
+    python3 - "$SIGNING_TEMPLATE" "$SIGNING_ENGINE" "$ACCENT_COLOR" "$SIGNING_OUTPUT" << 'PYEOF'
+import sys
+template_path, engine_path, accent_color, output_path = sys.argv[1:5]
+template = open(template_path).read()
+engine_js = open(engine_path).read()
+result = template.replace('<script src="engine.js"></script>', '<script>\n' + engine_js + '\n</script>')
+result = result.replace('{{PRIMARY_COLOR}}', accent_color)
+with open(output_path, 'w') as f:
+    f.write(result)
+PYEOF
+    echo "Signing page generated with accent color: $ACCENT_COLOR"
+
+    # Create systemd unit
+    cat > "$TEMPLATE_PKG_DIR/lib/systemd/system/web3-auth-svc.service" << 'SVCEOF'
+[Unit]
+Description=Web3 Authentication Signing Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /usr/share/blockhost/web3-auth-svc.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    # Create tmpfiles.d config (creates pending dir on boot)
+    cat > "$TEMPLATE_PKG_DIR/usr/lib/tmpfiles.d/web3-auth-svc.conf" << 'TMPEOF'
+d /run/libpam-web3/pending 0755 root root -
+TMPEOF
+
+    # Create DEBIAN/control
+    cat > "$TEMPLATE_PKG_DIR/DEBIAN/control" << EOF
+Package: blockhost-auth-svc
+Version: ${VERSION}
+Section: admin
+Priority: optional
+Architecture: all
+Depends: nodejs (>= 22)
+Maintainer: Blockhost <admin@blockhost.io>
+Description: Web3 authentication signing server for Blockhost VMs
+ HTTPS server that serves the web3 signing page and handles
+ callback-based signature submission for PAM authentication.
+ .
+ This package is installed on VM templates, not the Proxmox host.
+EOF
+
+    # Create DEBIAN/postinst
+    cat > "$TEMPLATE_PKG_DIR/DEBIAN/postinst" << 'EOF'
+#!/bin/bash
+set -e
+case "$1" in
+    configure)
+        # Create pending directory (also handled by tmpfiles.d on boot)
+        mkdir -p /run/libpam-web3/pending
+        chmod 0755 /run/libpam-web3/pending
+
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemd-tmpfiles --create web3-auth-svc.conf 2>/dev/null || true
+        fi
+        ;;
+esac
+exit 0
+EOF
+
+    # Create DEBIAN/prerm
+    cat > "$TEMPLATE_PKG_DIR/DEBIAN/prerm" << 'EOF'
+#!/bin/bash
+set -e
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop web3-auth-svc 2>/dev/null || true
+            systemctl disable web3-auth-svc 2>/dev/null || true
+        fi
+        ;;
+esac
+exit 0
+EOF
+
+    chmod 755 "$TEMPLATE_PKG_DIR/DEBIAN/postinst" "$TEMPLATE_PKG_DIR/DEBIAN/prerm"
+
+    # Build template .deb
+    dpkg-deb --build "$TEMPLATE_PKG_DIR"
+
+    echo ""
+    echo "=========================================="
+    echo "Template package built: $SCRIPT_DIR/${TEMPLATE_PKG_NAME}.deb"
+    echo "=========================================="
+    echo ""
+    echo "Template package contents:"
+    echo "  /usr/bin/web3-auth-svc                            - Wrapper script"
+    echo "  /usr/share/blockhost/web3-auth-svc.js             - Bundled server ($AUTH_SVC_SIZE)"
+    echo "  /usr/share/blockhost/signing-page/index.html      - Signing page HTML"
+    echo "  /lib/systemd/system/web3-auth-svc.service         - Systemd unit"
+    echo "  /usr/lib/tmpfiles.d/web3-auth-svc.conf            - tmpfiles.d config"
+else
+    echo ""
+    echo "ERROR: Failed to bundle auth-svc"
+    exit 1
 fi

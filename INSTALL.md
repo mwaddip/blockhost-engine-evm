@@ -60,11 +60,8 @@ foundryup
 /root/.foundry/bin/cast --version
 ```
 
-**libpam-web3 (for NFT ECIES encryption):**
-```bash
-# Install the libpam-web3-tools package (provides pam_web3_tool)
-dpkg -i /path/to/libpam-web3-tools_*.deb
-```
+**bhcrypt** is included in the blockhost-engine-evm package (no separate install needed).
+Dependencies `python3-pycryptodome` and `python3-ecdsa` are pulled in automatically.
 
 ### 2. Install Blockhost Packages
 
@@ -77,8 +74,8 @@ dpkg -i blockhost-common_*.deb
 # 2. blockhost-provisioner-proxmox (provides VM provisioning scripts)
 dpkg -i blockhost-provisioner-proxmox_*.deb
 
-# 3. blockhost-engine (provides monitor service)
-dpkg -i blockhost-engine_*.deb
+# 3. blockhost-engine-evm (provides monitor service)
+dpkg -i blockhost-engine-evm_*.deb
 ```
 
 This creates the directory structure automatically:
@@ -105,7 +102,7 @@ After installing the packages, the following structure is created:
 ├── scripts/                  # VM provisioning scripts
 └── cloud-init/               # Cloud-init templates
 
-# Provided by blockhost-engine:
+# Provided by blockhost-engine-evm:
 /opt/blockhost/
 ├── package.json              # Monitor dependencies
 ├── start.sh                  # Monitor startup script
@@ -219,7 +216,7 @@ npm install
 | `/etc/blockhost/db.yaml` | Database and IP pool configuration |
 | `/etc/blockhost/server.key` | Server private key (ECIES) |
 | `/etc/blockhost/deployer.key` | Deployer private key (NFT minting) |
-| `/var/lib/blockhost/vms.json` | VM database (VMs, reserved NFT tokens) |
+| `/var/lib/blockhost/vms.json` | VM database (VMs, NFT state) |
 
 ## VM Provisioning
 

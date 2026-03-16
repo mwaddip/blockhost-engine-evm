@@ -86,6 +86,9 @@ src/ab/                   S6  P6  E5  C7  I6  A5  L5
 
 src/is/                   S7  P7  E5  C7  I6  A7  L5
   Simple queries. Exit codes matter.
+
+scripts/nft_tool.py       S7  P9  E6  C6  I7  A8  L6
+  Crypto CLI. Key handling and correctness are non-negotiable.
 ```
 
 ### blockhost-provisioner-proxmox
@@ -117,9 +120,6 @@ default (submodule)       S6  P6  E7  C8  I9  A7  L5
 ```
 default (submodule)       S8  P10 E7  C5  I8  A8  L7
   Authentication boundary. This is the lock on the door.
-
-pam_web3_tool             S7  P9  E6  C6  I7  A8  L6
-  Crypto CLI. Performance matters (runs per SSH login). Security is non-negotiable.
 
 web3-auth-svc             S7  P9  E8  C5  I7  A7  L7
   Long-running auth service. Must not crash, must not leak.

@@ -94,7 +94,8 @@ export async function cleanupCommand(
             value: sendAmount,
           });
           const receipt = await tx.wait();
-          return { role, amount: sendAmount, hash: receipt!.hash };
+          if (!receipt) return { role, failed: "Transaction dropped from mempool" };
+          return { role, amount: sendAmount, hash: receipt.hash };
         } catch (err) {
           return { role, failed: `${err}` };
         }

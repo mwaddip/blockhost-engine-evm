@@ -3,21 +3,22 @@ EVM engine wizard plugin for BlockHost installer.
 
 Provides:
 - Flask Blueprint with /wizard/evm route and blockchain API routes
-- Pre-provisioner finalization steps: keypair, wallet, contracts, chain_config
+- Pre-provisioner finalization steps: wallet, contracts, chain_config
 - Post-nginx finalization steps: mint_nft, plan, revenue_share
 - Summary data and template for the summary page
 """
 
 import grp
+import ipaddress
 import json
 import os
-import re
 import secrets
 import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from flask import (
     Blueprint,
@@ -78,6 +79,28 @@ def validate_address(address: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def validate_rpc_url(url: str) -> bool:
+    """Validate that an RPC URL is a safe, non-internal HTTP(S) endpoint."""
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            return False
+    except ValueError:
+        pass  # domain name, not IP literal — allow
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -216,18 +239,16 @@ def api_validate_key():
                 400,
             )
     except FileNotFoundError:
-        # Fallback: try pam_web3_tool
+        # Fallback: try bhcrypt
         try:
             result = subprocess.run(
-                ["pam_web3_tool", "key-to-address", "--key", private_key],
+                ["bhcrypt", "key-to-address", "--key", private_key],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
             if result.returncode == 0 and result.stdout.strip():
                 address = result.stdout.strip()
-                if "0x" in address:
-                    address = address[address.index("0x") :]
                 return jsonify({"address": address, "private_key": private_key})
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -247,6 +268,9 @@ def api_balance():
 
     if not validate_address(address):
         return jsonify({"error": "Invalid address"}), 400
+
+    if not validate_rpc_url(rpc_url):
+        return jsonify({"error": "Invalid RPC URL (must be http or https)"}), 400
 
     import urllib.request
     import urllib.error
@@ -287,8 +311,8 @@ def api_balance():
                 "has_funds": balance_wei > 0,
             }
         )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "RPC request failed"}), 502
 
 
 @blueprint.route("/api/blockchain/deploy", methods=["POST"])
@@ -301,6 +325,9 @@ def api_deploy():
 
     if not deployer_key or not rpc_url:
         return jsonify({"error": "deployer_key and rpc_url required"}), 400
+
+    if not validate_rpc_url(rpc_url):
+        return jsonify({"error": "Invalid RPC URL"}), 400
 
     job_id = f"deploy-{secrets.token_hex(4)}"
     _deploy_jobs[job_id] = {
@@ -431,7 +458,7 @@ def _deploy_with_cast(job: dict, deployer_key_hex: str, rpc_url: str):
         job["status"] = "failed"
         job["message"] = (
             "Compiled contract artifacts not found. "
-            "Install blockhost-engine package or compile contracts with forge."
+            "Install blockhost-engine-evm package or compile contracts with forge."
         )
         return
 
@@ -551,6 +578,95 @@ def get_summary_data(session_data: dict) -> dict:
 def get_summary_template() -> str:
     """Return the template name for the engine summary section."""
     return "engine_evm/summary_section.html"
+
+
+def get_wallet_template() -> str:
+    """Return path to EVM wallet connect template."""
+    return "engine_evm/wallet.html"
+
+
+def validate_signature(sig: str) -> bool:
+    """Validate EVM signature format (0x-prefixed hex)."""
+    return bool(sig and sig.startswith("0x"))
+
+
+def decrypt_config(signature: str, ciphertext: str) -> dict:
+    """Decrypt config backup using bhcrypt.
+
+    Args:
+        signature: Admin wallet signature (0x-prefixed hex)
+        ciphertext: Encrypted config file content (0x-prefixed hex)
+
+    Returns:
+        Parsed config dict
+
+    Raises:
+        ValueError: On decryption failure or invalid content
+        FileNotFoundError: If bhcrypt not installed
+    """
+    import yaml
+
+    if not ciphertext.startswith("0x"):
+        raise ValueError("Invalid config file (expected hex ciphertext)")
+
+    result = subprocess.run(
+        [
+            "bhcrypt",
+            "decrypt-symmetric",
+            "--signature",
+            signature,
+            "--ciphertext",
+            ciphertext,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise ValueError("Decryption failed — wrong wallet or corrupted file")
+
+    config = yaml.safe_load(result.stdout)
+    if not isinstance(config, dict):
+        raise ValueError("Decrypted content is not valid config")
+    return config
+
+
+def encrypt_config(signature: str, plaintext: str) -> str:
+    """Encrypt config for backup download using bhcrypt.
+
+    Args:
+        signature: Admin wallet signature (0x-prefixed hex)
+        plaintext: YAML-serialized config string
+
+    Returns:
+        Hex ciphertext string (0x-prefixed)
+
+    Raises:
+        ValueError: On encryption failure
+        FileNotFoundError: If bhcrypt not installed
+    """
+    result = subprocess.run(
+        [
+            "bhcrypt",
+            "encrypt-symmetric",
+            "--signature",
+            signature,
+            "--plaintext",
+            plaintext,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"Encryption failed: {result.stderr}")
+
+    # bhcrypt outputs raw 0x-prefixed hex (no labels)
+    output = result.stdout.strip()
+    if output.startswith("0x"):
+        return output
+
+    raise ValueError("Could not parse encrypted output")
 
 
 def get_progress_steps_meta() -> list[dict]:
@@ -695,18 +811,16 @@ def _derive_address_from_key(private_key: str) -> Optional[str]:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Try pam_web3_tool
+    # Try bhcrypt
     try:
         result = subprocess.run(
-            ["pam_web3_tool", "key-to-address", "--key", f"0x{key_hex}"],
+            ["bhcrypt", "key-to-address", "--key", f"0x{key_hex}"],
             capture_output=True,
             text=True,
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            output = result.stdout.strip()
-            if "0x" in output:
-                return output[output.index("0x") :].strip().split()[0]
+            return result.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -850,7 +964,7 @@ def finalize_contracts(config: dict) -> tuple[bool, Optional[str]]:
         if not sub_artifact.exists():
             return False, (
                 "Contract artifacts not found at "
-                f"{CONTRACTS_DIR}. Install blockhost-engine package."
+                f"{CONTRACTS_DIR}. Install blockhost-engine-evm package."
             )
 
         if nft_artifact.exists():
@@ -889,6 +1003,9 @@ def _verify_contract_exists(address: str, rpc_url: str) -> bool:
         return result.returncode == 0
     except FileNotFoundError:
         pass
+
+    if not validate_rpc_url(rpc_url):
+        return False
 
     # Fallback: eth_getCode via JSON-RPC
     import urllib.request
@@ -1085,7 +1202,6 @@ def finalize_chain_config(config: dict) -> tuple[bool, Optional[str]]:
                         "next_vmid": provisioner.get("vmid_start", 100),
                         "allocated_ips": [],
                         "allocated_ipv6": [],
-                        "reserved_nft_tokens": {},
                     },
                     indent=2,
                 )
@@ -1113,7 +1229,6 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
     try:
         blockchain = config.get("blockchain", {})
         admin_wallet = config.get("admin_wallet", "")
-        public_secret = config.get("admin_public_secret", "blockhost-access")
         admin_signature = config.get("admin_signature", "")
         nft_contract = blockchain.get("nft_contract", "")
         rpc_url = blockchain.get("rpc_url", "")
@@ -1144,7 +1259,7 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
             try:
                 encrypt_result = subprocess.run(
                     [
-                        "pam_web3_tool",
+                        "bhcrypt",
                         "encrypt-symmetric",
                         "--signature",
                         admin_signature,
@@ -1156,12 +1271,11 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
                     timeout=30,
                 )
                 if encrypt_result.returncode == 0:
-                    from installer.web.utils import parse_pam_ciphertext
-
-                    ct = parse_pam_ciphertext(encrypt_result.stdout)
-                    if ct:
+                    # bhcrypt outputs raw 0x-prefixed hex
+                    ct = encrypt_result.stdout.strip()
+                    if ct.startswith("0x"):
                         user_encrypted = ct
-            except (FileNotFoundError, ImportError):
+            except FileNotFoundError:
                 pass
 
         # Check if NFT #0 already exists (pre-deployed contracts)
@@ -1233,9 +1347,7 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
 
             result = _mint_nft(
                 owner_wallet=admin_wallet,
-                machine_id="blockhost-admin",
                 user_encrypted=user_encrypted,
-                public_secret=public_secret,
             )
 
             if isinstance(result, dict):
@@ -1262,13 +1374,9 @@ def finalize_mint_nft(config: dict) -> tuple[bool, Optional[str]]:
             "blockhost-mint-nft",
             "--owner-wallet",
             admin_wallet,
-            "--machine-id",
-            "blockhost-admin",
         ]
         if user_encrypted != "0x":
             cmd.extend(["--user-encrypted", user_encrypted])
-        if public_secret:
-            cmd.extend(["--public-secret", public_secret])
 
         result = subprocess.run(
             cmd,

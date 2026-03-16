@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as yaml from "js-yaml";
 
 // Paths
-const NFT_CONTRACT_PATH = "/usr/share/libpam-web3-tools/contracts/AccessCredentialNFT.sol";
+const NFT_CONTRACT_PATH = "/usr/share/blockhost/contracts/AccessCredentialNFT.sol";
 const WEB3_CONFIG_PATH = "/etc/blockhost/web3-defaults.yaml";
 
 interface Web3Config {
@@ -30,8 +30,7 @@ interface Web3Config {
  * Deploy AccessCredentialNFT using forge
  * Returns the deployed contract address
  *
- * Note: As of v0.5.0, signing pages are per-NFT (embedded during minting),
- * not contract-wide. The constructor only takes name, symbol, defaultImageUri.
+ * Constructor takes name and symbol only.
  */
 async function deployNFTContract(
   deployerKey: string,
@@ -43,14 +42,12 @@ async function deployNFTContract(
   if (!fs.existsSync(NFT_CONTRACT_PATH)) {
     throw new Error(
       `NFT contract not found at ${NFT_CONTRACT_PATH}. ` +
-      `Install libpam-web3-tools >= 0.5.0`
+      `Ensure blockhost-engine-evm is installed`
     );
   }
 
-  // Constructor args (v0.5.0): name, symbol, defaultImageUri
   const name = "BlockhostAccess";
   const symbol = "BHA";
-  const defaultImageUri = ""; // Can be set later via setDefaultImageUri()
 
   console.log(`Contract source: ${NFT_CONTRACT_PATH}`);
   console.log(`NFT Name: ${name}`);
@@ -63,7 +60,7 @@ async function deployNFTContract(
   // For simplicity, we'll compile and deploy using forge create with --root pointing
   // to a temp directory, or use the pre-compiled ABI/bytecode if available
 
-  const abiPath = "/usr/share/libpam-web3-tools/contracts/AccessCredentialNFT.abi.json";
+  const abiPath = "/usr/share/blockhost/contracts/AccessCredentialNFT.json";
 
   if (fs.existsSync(abiPath)) {
     // Use pre-compiled bytecode from the package
@@ -74,12 +71,11 @@ async function deployNFTContract(
       throw new Error("No bytecode found in ABI JSON file");
     }
 
-    // Encode constructor arguments (v0.5.0 signature)
-    // AccessCredentialNFT(string name, string symbol, string defaultImageUri)
+    // Encode constructor arguments
     const iface = new ethers.Interface([
-      "constructor(string name, string symbol, string defaultImageUri)"
+      "constructor(string name, string symbol)"
     ]);
-    const encodedArgs = iface.encodeDeploy([name, symbol, defaultImageUri]);
+    const encodedArgs = iface.encodeDeploy([name, symbol]);
 
     // Combine bytecode + constructor args
     const deployData = bytecode + encodedArgs.slice(2); // remove 0x from encoded args
@@ -87,7 +83,7 @@ async function deployNFTContract(
     // Deploy using cast
     const result = execSync(
       `cast send --create "${deployData}" --private-key "${deployerKey}" --rpc-url "${rpcUrl}" --json`,
-      { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 } // 50MB buffer for large signing page
+      { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }
     );
 
     const txResult = JSON.parse(result);
@@ -124,10 +120,10 @@ libs = ["lib"]
       stdio: "pipe"
     });
 
-    // Compile and deploy (v0.5.0 constructor: name, symbol, defaultImageUri)
+    // Compile and deploy
     const forgeResult = execSync(
       `cd ${tmpDir} && forge create src/AccessCredentialNFT.sol:AccessCredentialNFT ` +
-      `--constructor-args "${name}" "${symbol}" "${defaultImageUri}" ` +
+      `--constructor-args "${name}" "${symbol}" ` +
       `--private-key "${deployerKey}" --rpc-url "${rpcUrl}" --json`,
       { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }
     );
@@ -177,7 +173,7 @@ function updateConfig(nftContractAddress: string, subscriptionContractAddress: s
     const header = `# Blockhost Web3/Blockchain Configuration
 # Updated by deploy script on ${new Date().toISOString()}
 #
-# Managed by: blockhost-common (template), blockhost-engine (populated)
+# Managed by: blockhost-common (template), blockhost-engine-evm (populated)
 
 `;
 
@@ -248,9 +244,6 @@ async function main() {
   // ============================================
   // 2. Deploy AccessCredentialNFT (Forge)
   // ============================================
-  // Note: As of v0.5.0, signing pages are per-NFT and embedded during minting,
-  // not set at contract deployment time.
-
   const nftAddress = await deployNFTContract(deployerKey, rpcUrl);
 
   // ============================================

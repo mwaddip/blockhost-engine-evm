@@ -49,10 +49,12 @@ export function loadState(): FundManagerState {
 /**
  * Save state to persistent storage
  */
-export function saveState(state: FundManagerState): void {
+function saveState(state: FundManagerState): void {
   try {
     ensureDir();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+    const tmpFile = `${STATE_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2));
+    fs.renameSync(tmpFile, STATE_FILE);
     cachedState = state;
   } catch (err) {
     console.error(`[FUND] Error saving state: ${err}`);

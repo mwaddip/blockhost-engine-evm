@@ -44,11 +44,7 @@ export function loadAddressbook(): Addressbook {
  * Save addressbook via root agent
  */
 export async function saveAddressbook(book: Addressbook): Promise<void> {
-  try {
-    await addressbookSave(book);
-  } catch (err) {
-    console.error(`[FUND] Error saving addressbook: ${err}`);
-  }
+  await addressbookSave(book);
 }
 
 /**

@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import http.server
+import json
 import os
 import socket
 import socketserver
@@ -66,8 +67,30 @@ def load_config(config_path: str, web3_config_path: str) -> dict:
     return config
 
 
-def generate_page(config: dict, template: str) -> str:
-    """Generate the signup page by replacing placeholders."""
+def load_accent_color() -> str:
+    """Read accent_color from engine.json (fallback to default)."""
+    engine_json_locations = [
+        SCRIPT_DIR.parent / "engine.json",  # Development
+        Path("/usr/share/blockhost/engine.json"),  # Installed
+    ]
+    for path in engine_json_locations:
+        if path.exists():
+            try:
+                with open(path) as f:
+                    return json.load(f).get('accent_color', '#627EEA')
+            except (json.JSONDecodeError, KeyError):
+                pass
+    return '#627EEA'
+
+
+def generate_page(config: dict, template: str, engine_js: str) -> str:
+    """Generate the signup page by inlining engine JS and replacing placeholders."""
+
+    # Inline engine JS into template
+    result = template.replace(
+        '<script type="module" src="signup-engine.js"></script>',
+        '<script type="module">\n' + engine_js + '\n</script>',
+    )
 
     # Required config values
     server_public_key = config.get('server_public_key', '')
@@ -81,9 +104,9 @@ def generate_page(config: dict, template: str) -> str:
     subscription_contract = blockchain.get('subscription_contract', config.get('subscription_contract', ''))
     usdc_address = blockchain.get('usdc_address', config.get('usdc_address', ''))
 
-    # Theming (future expansion)
+    # Theming: config overrides engine.json
     page_title = config.get('page_title', 'Blockhost - Get Your Server')
-    primary_color = config.get('primary_color', '#6366f1')
+    primary_color = config.get('primary_color', load_accent_color())
 
     if not server_public_key:
         print("Error: server_public_key not found in config. Run blockhost-init first.")
@@ -102,7 +125,6 @@ def generate_page(config: dict, template: str) -> str:
         '{{PRIMARY_COLOR}}': primary_color,
     }
 
-    result = template
     for placeholder, value in replacements.items():
         result = result.replace(placeholder, value)
 
@@ -190,11 +212,23 @@ def main():
     with open(template_path) as f:
         template = f.read()
 
+    # Find and read engine JS (same directory as template)
+    engine_js_path = template_path.parent / "signup-engine.js"
+    if not engine_js_path.exists():
+        # Try installed location
+        engine_js_path = Path("/usr/share/blockhost/signup-engine.js")
+    if not engine_js_path.exists():
+        print(f"Error: Engine JS not found: {engine_js_path}")
+        sys.exit(1)
+
+    with open(engine_js_path) as f:
+        engine_js = f.read()
+
     # Load config
     config = load_config(args.config, args.web3_config)
 
     # Generate page
-    html = generate_page(config, template)
+    html = generate_page(config, template, engine_js)
 
     # Write output
     output_path = Path(args.output).resolve()

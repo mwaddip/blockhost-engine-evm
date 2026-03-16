@@ -31,14 +31,12 @@ export function tryDecryptCommand(txData: string): string | null {
   }
 
   try {
-    // Use pam_web3_tool for ECIES decryption
     const result = execFileSync(
-      "pam_web3_tool",
+      "bhcrypt",
       ["decrypt", "--private-key-file", privateKeyPath, "--ciphertext", ciphertext],
       { encoding: "utf8", timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
     );
-    // Strip "Decrypted: " prefix if present
-    return result.trim().replace(/^Decrypted:\s*/, '');
+    return result.trim();
   } catch {
     // Decryption failed - this is not an admin command
     return null;

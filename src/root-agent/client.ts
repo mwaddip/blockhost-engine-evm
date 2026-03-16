@@ -6,6 +6,7 @@ import * as net from "net";
 
 const SOCKET_PATH = "/run/blockhost/root-agent.sock";
 const DEFAULT_TIMEOUT = 300_000; // 300s in ms
+const MAX_RESPONSE_SIZE = 1_048_576; // 1 MB
 
 export class RootAgentError extends Error {
   constructor(message: string) {
@@ -39,6 +40,11 @@ export async function callRootAgent(
 
       if (expectedLength === null && responseBuffer.length >= 4) {
         expectedLength = responseBuffer.readUInt32BE(0);
+        if (expectedLength > MAX_RESPONSE_SIZE) {
+          socket.destroy();
+          reject(new RootAgentError(`Response too large: ${expectedLength} bytes (max ${MAX_RESPONSE_SIZE})`));
+          return;
+        }
         responseBuffer = responseBuffer.subarray(4);
       }
 

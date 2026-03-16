@@ -116,11 +116,11 @@ export async function runFundCycle(provider: ethers.Provider): Promise<void> {
     // Step 5: Remainder to admin (hot → admin)
     await sendRemainderToAdmin(book, provider, contract);
 
+    updateState({ last_fund_cycle: Date.now() });
     console.log("[FUND] Fund cycle complete");
   } catch (err) {
     console.error(`[FUND] Error during fund cycle: ${err}`);
   } finally {
-    updateState({ last_fund_cycle: Date.now() });
     fundCycleInProgress = false;
   }
 }

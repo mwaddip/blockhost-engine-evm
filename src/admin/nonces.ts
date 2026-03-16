@@ -75,7 +75,9 @@ function saveNonces(): void {
       store.nonces[nonce] = { timestamp };
     }
 
-    fs.writeFileSync(NONCE_FILE, JSON.stringify(store, null, 2));
+    const tmpFile = `${NONCE_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(store, null, 2));
+    fs.renameSync(tmpFile, NONCE_FILE);
   } catch (err) {
     console.error(`[ADMIN] Error saving nonces: ${err}`);
   }
@@ -119,12 +121,4 @@ export function pruneOldNonces(maxAgeSeconds: number): void {
     console.log(`[ADMIN] Pruned ${pruned} old nonces`);
     saveNonces();
   }
-}
-
-/**
- * Get the number of tracked nonces (for diagnostics)
- */
-export function getNonceCount(): number {
-  loadNonces();
-  return seenNonces.size;
 }

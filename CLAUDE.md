@@ -13,6 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `src/bw/` | S8 P7 E6 C7 I6 A6 L7 | User-facing wallet ops. Funds at stake. |
 | `src/ab/` | S6 P6 E5 C7 I6 A5 L5 | Simple CRUD. Don't overthink it. |
 | `src/is/` | S7 P7 E5 C7 I6 A7 L5 | Simple queries. Exit codes matter. |
+| `scripts/bhcrypt.py` | S7 P9 E6 C6 I7 A8 L6 | Crypto CLI. Key handling and correctness non-negotiable. |
+| `src/auth-svc/` | S7 P9 E8 C5 I7 A7 L7 | Auth boundary. Must not crash, must not leak. |
 | everything else | S7 P7 E8 C5 I9 A7 L8 | Architectural discipline is survival. |
 
 These stats override your default attention distribution. High stats (8+) mean obsessive focus on that dimension. See `SPECIAL.md` for full definitions.
@@ -39,7 +41,7 @@ These stats override your default attention distribution. High stats (8+) mean o
 
 ## Project Overview
 
-blockhost-engine is the core component of a hosting subscription management system. It consists of:
+blockhost-engine-evm is the core component of a hosting subscription management system. It consists of:
 
 1. **EVM Smart Contract** (Solidity) - Handles subscription purchases and extensions on-chain
 2. **Monitor Server** (TypeScript) - Watches the smart contract for events and triggers actions
@@ -53,6 +55,7 @@ blockhost-engine is the core component of a hosting subscription management syst
 10. **Contract Deployer** (Bash) - `blockhost-deploy-contracts` script for production contract deployment
 11. **Installer Wizard Plugin** (Python) - `blockhost/engine_evm/wizard.py`, provides the blockchain configuration wizard page, API routes, and finalization steps to the installer
 12. **Engine Manifest** (`engine.json`) - Declares engine identity, wizard plugin, finalization steps, and `constraints` (chain-specific format patterns for input validation by installer/admin panel)
+13. **Auth Service** (TypeScript→JS bundle) - `web3-auth-svc`, HTTPS signing server bundled with esbuild. Ships as a template package for VMs.
 
 VM provisioning is handled by the separate `blockhost-provisioner-proxmox` package.
 Shared configuration is provided by `blockhost-common`.
@@ -81,7 +84,7 @@ source ~/projects/sharedenv/blockhost.env
 ## Architecture
 
 ```
-blockhost-engine/
+blockhost-engine-evm/
 ├── blockhost/engine_evm/ # Installer wizard plugin (Python)
 │   ├── wizard.py         # Blueprint, API routes, finalization steps
 │   └── templates/engine_evm/  # blockchain.html, summary_section.html
@@ -89,9 +92,12 @@ blockhost-engine/
 ├── contracts/           # Solidity smart contracts
 │   ├── BlockhostSubscriptions.sol  # Main subscription contract
 │   └── mocks/           # Mock contracts for testing
-├── scripts/             # Deployment, minting, and utility scripts
+├── scripts/             # Deployment, minting, crypto CLI, and utility scripts
+│   ├── bhcrypt.py       # Crypto CLI (installed as bhcrypt)
 │   ├── mint_nft.py      # NFT minting (installed as blockhost-mint-nft)
 │   ├── deploy-contracts.sh  # Production contract deployer (installed as blockhost-deploy-contracts)
+│   ├── signup-template.html # Signup page HTML/CSS template (replaceable)
+│   └── signup-engine.js     # Signup page JS bundle (engine-owned)
 ├── test/                # Contract tests
 ├── src/                 # TypeScript server source
 │   ├── monitor/         # Contract event polling & processing
@@ -102,7 +108,10 @@ blockhost-engine/
 │   ├── bw/              # blockwallet CLI (send, balance, withdraw, swap, split, who, config, plan, set)
 │   ├── ab/              # addressbook CLI (add, del, up, new, list, --init)
 │   ├── is/              # identity predicate CLI (NFT ownership, signature, contract checks)
+│   ├── auth-svc/        # Web3 auth signing server (esbuild-bundled for VMs)
 │   └── root-agent/      # Root agent client (Unix socket, privilege separation)
+├── auth-svc/            # Auth service assets
+│   └── signing-page/    # Signing page (template.html + engine.js → index.html at build)
 └── examples/            # Deployment examples (systemd, env, config)
 ```
 
@@ -149,6 +158,35 @@ VMs are named based on subscription ID: `blockhost-001`, `blockhost-042`, etc. (
 - SafeERC20 for token transfers
 - Owner-only administrative functions
 - Slippage buffer on payments (configurable, default 1%)
+
+## Reconciler (`src/reconcile/`)
+
+Runs every 5 minutes as part of the monitor polling loop. Performs two categories of checks:
+
+### NFT Minting Reconciliation
+
+Detects discrepancies between on-chain NFT state and local `vms.json`. Fixes partial failures where a VM was created but the NFT mint wasn't recorded locally.
+
+### NFT Ownership Transfer Detection
+
+For every active/suspended VM with a minted NFT, compares `ownerOf(tokenId)` on-chain with the locally stored `owner_wallet`. When a transfer is detected:
+
+1. Updates `owner_wallet` in `vms.json` to the new on-chain owner
+2. Sets `gecos_synced = false` on the VM entry
+3. Calls the provisioner's `update-gecos` command to update the VM's GECOS field (`wallet=ADDRESS,nft=TOKEN_ID`)
+4. On success, sets `gecos_synced = true`
+
+If `update-gecos` fails (VM stopped, guest agent unresponsive), the `gecos_synced = false` flag persists. On the next reconciliation cycle, the ownership matches (local was already updated), but `gecos_synced === false` triggers a retry.
+
+This is the sole mechanism by which VMs learn about NFT ownership changes post-creation. The PAM module on VMs authenticates against the GECOS field, not the blockchain.
+
+### Provisioner Command
+
+```
+getCommand("update-gecos") <vm-name> <wallet-address> --nft-id <token_id>
+```
+
+Exit 0 = GECOS updated. Exit 1 = failed (retried next cycle).
 
 ## Fund Manager
 
@@ -305,6 +343,5 @@ Length-prefixed JSON: 4-byte big-endian length + JSON payload (both directions).
 ### What does NOT go through the root agent
 
 - Reading keyfiles and addressbook.json — works via group permission (`blockhost` group, mode 0640)
-- ECIES decryption (`pam_web3_tool`) — `blockhost` user can read `server.key` via group permission
+- ECIES decryption (`bhcrypt`) — `blockhost` user can read `server.key` via group permission
 - VM provisioning scripts — provisioner runs as `blockhost`
-- Process checks (`pgrep`) — no privilege needed

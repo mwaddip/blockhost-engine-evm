@@ -67,7 +67,8 @@ export async function topUpServerStablecoinBuffer(
   try {
     stablecoinAddress = await contract.getPrimaryStablecoin();
     if (stablecoinAddress === ethers.ZeroAddress) return;
-  } catch {
+  } catch (err) {
+    console.error(`[FUND] Failed to query primary stablecoin, skipping buffer top-up: ${err}`);
     return;
   }
 
@@ -135,10 +136,14 @@ export async function distributeRevenueShares(
       }
 
       const isLast = i === revenueConfig.recipients.length - 1;
-      const share = isLast
-        ? totalShareAmount - distributed
-        : (totalShareAmount * BigInt(Math.round(recipient.percent * 100))) /
+      let share: bigint;
+      if (isLast) {
+        // Last recipient gets remainder; clamp to 0 if rounding caused overallocation
+        share = distributed >= totalShareAmount ? 0n : totalShareAmount - distributed;
+      } else {
+        share = (totalShareAmount * BigInt(Math.round(recipient.percent * 100))) /
           BigInt(Math.round(revenueConfig.total_percent * 100));
+      }
       distributed += share;
       if (share === 0n) continue;
 
