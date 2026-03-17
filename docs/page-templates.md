@@ -1,22 +1,20 @@
 # Page Templates
 
-The signing page and signup page are split into replaceable **templates** (HTML/CSS) and engine-owned **JS bundles**. You can customize the look and feel without touching any wallet or chain logic.
+The signup page is split into a replaceable **template** (HTML/CSS) and an engine-owned **JS bundle**. You can customize the look and feel without touching any wallet or chain logic.
+
+> **Note:** The signing page and auth-svc have moved to `libpam-web3` chain plugins. This doc covers the signup page only.
 
 ## How It Works
 
 ```
 template (HTML/CSS)     — layout, branding, copy, styles        (you own this)
 engine bundle (JS)      — wallet connection, signing, chain ops  (engine owns this)
-generator (Python/Bash) — injects config, combines them → output
+generator (Python)      — injects config, combines them → output
 ```
 
 ## File Structure
 
 ```
-auth-svc/signing-page/
-  template.html        ← edit this for custom signing page styling
-  engine.js            ← don't touch (wallet + signing logic)
-
 scripts/
   signup-template.html ← edit this for custom signup page styling
   signup-engine.js     ← don't touch (wallet + purchase + decrypt logic)
@@ -25,13 +23,11 @@ scripts/
 
 ## Creating a Custom Template
 
-1. Copy the default template (`template.html` or `signup-template.html`)
+1. Copy `scripts/signup-template.html`
 2. Modify HTML structure, CSS, copy, images — anything visual
 3. Keep all **required DOM element IDs** intact (see below)
 4. Keep the `CONFIG` script block and engine script include
-5. Rebuild:
-   - Signing page: run `packaging/build.sh` (inlines engine.js at package build time)
-   - Signup page: run `python3 scripts/generate-signup-page.py`
+5. Rebuild: `python3 scripts/generate-signup-page.py`
 
 ## Template Variables
 
@@ -66,19 +62,6 @@ All buttons, links, active states, and highlights reference `var(--primary)`. Ch
 ## Required DOM Element IDs
 
 The engine JS finds elements by `id`. Your template **must** include all of these.
-
-### Signing Page
-
-| Element ID | Type | Purpose |
-|------------|------|---------|
-| `btn-connect` | button | Triggers wallet connection |
-| `btn-sign` | button | Triggers message signing |
-| `wallet-address` | span/div | Displays connected wallet address |
-| `status-message` | div | Shows status/error messages |
-| `step-connect` | div | Connect wallet step container |
-| `step-sign` | div | Sign message step container |
-
-### Signup Page
 
 | Element ID | Type | Purpose |
 |------------|------|---------|

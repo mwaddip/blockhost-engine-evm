@@ -41,10 +41,8 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 | `src/bw/` | TypeScript | blockwallet CLI for scriptable wallet operations |
 | `src/ab/` | TypeScript | Addressbook CLI for managing wallet entries |
 | `src/is/` | TypeScript | Identity predicate CLI (NFT ownership, signature, contract checks) |
-| `src/auth-svc/` | TypeScript | Web3 auth signing server (esbuild-bundled for VMs) |
 | `src/root-agent/` | TypeScript | Client for the privileged root agent daemon |
 | `blockhost/engine_evm/` | Python | Installer wizard plugin (blockchain config, finalization steps) |
-| `auth-svc/signing-page/` | HTML/JS | Signing page template + engine bundle |
 | `scripts/` | TS/Python/Bash | Deployment, crypto CLI, signup page generation |
 
 ## Prerequisites
@@ -79,8 +77,7 @@ npm run deploy:local     # Deploy to local node
 | Doc | Covers |
 |-----|--------|
 | [Smart Contract](docs/smart-contract.md) | Contract functions, plans, payments |
-| [VM Authentication](docs/vm-authentication.md) | Auth flow, auth-svc, signing page |
-| [Page Templates](docs/page-templates.md) | Custom branding, required DOM IDs, CSS classes |
+| [Page Templates](docs/page-templates.md) | Custom signup page branding, DOM IDs, CSS classes |
 | [CLI Reference](docs/cli.md) | `bw`, `ab`, `is` command-line tools |
 | [Fund Manager](docs/fund-manager.md) | Withdrawal cycles, gas management, revenue sharing |
 | [Reconciler](docs/reconciler.md) | NFT state sync, ownership transfer detection |
@@ -116,10 +113,7 @@ blockhost-engine-evm/
 │   ├── bw/                    # blockwallet CLI
 │   ├── ab/                    # addressbook CLI
 │   ├── is/                    # identity predicate CLI
-│   ├── auth-svc/              # Web3 auth signing server (esbuild-bundled)
 │   └── root-agent/            # Root agent client (privilege separation)
-├── auth-svc/                  # Auth service assets
-│   └── signing-page/          # Signing page (template.html + engine.js)
 ├── docs/                      # Detailed documentation
 ├── test/                      # Contract tests
 ├── examples/                  # Deployment examples
