@@ -81,7 +81,7 @@
                         <span id="deployer-address">-</span>
                         <button type="button" class="btn btn-small copy-btn" onclick="copyToClipboard('deployer-address', this)">Copy</button>
                     </div>
-                    <label style="margin-top: 1rem;">Private Key <span style="color: var(--danger);">*</span></label>
+                    <label style="margin-top: 1rem;">Private Key <span style="color: var(--error);">*</span></label>
                     <div class="address-box">
                         <span id="deployer-private-key" style="font-family: monospace; word-break: break-all;">-</span>
                         <button type="button" class="btn btn-small copy-btn" onclick="copyToClipboard('deployer-private-key', this)">Copy</button>
@@ -93,7 +93,7 @@
                            value="{{ blockchain.get('deployer_key', '') }}">
 
                     <!-- Balance check section -->
-                    <div id="balance-section" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 4px;">
+                    <div id="balance-section" style="margin-top: 1rem; padding: 1rem; background: var(--bg-input); border-radius: 4px;">
                         <label>Wallet Balance</label>
                         <div style="display: flex; align-items: center; gap: 1rem;">
                             <span id="wallet-balance" style="font-size: 1.25rem; font-weight: 500;">0 ETH</span>
