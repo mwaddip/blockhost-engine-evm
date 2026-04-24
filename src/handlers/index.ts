@@ -6,6 +6,7 @@
 import { ethers } from "ethers";
 import { spawn, execFileSync, spawnSync } from "child_process";
 import { getCommand } from "../provisioner";
+import { getNetworkMode } from "../config/network-mode";
 
 // Paths on the server
 const WORKING_DIR = "/var/lib/blockhost";
@@ -272,6 +273,51 @@ db.set_nft_minted(os.environ["VM_NAME"], int(os.environ["NFT_TOKEN_ID"]))
 }
 
 /**
+ * Resolve the subscriber-facing host via blockhost.network_hook.
+ * In broker/manual modes this is a pass-through; in onion mode it creates
+ * a hidden service and pushes the .onion into the VM. See facts/ENGINE_INTERFACE.md §13.
+ * Throws on any failure so the caller can decide whether to fall back.
+ */
+function getConnectionEndpoint(vmName: string, bridgeIp: string, mode: string): string {
+  const script =
+    "import sys\n" +
+    "from blockhost.network_hook import get_connection_endpoint\n" +
+    "print(get_connection_endpoint(sys.argv[1], sys.argv[2], sys.argv[3]))\n";
+  const result = spawnSync("python3", ["-c", script, vmName, bridgeIp, mode], {
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  if (result.status !== 0) {
+    const errMsg = (result.stderr || result.stdout || "").trim();
+    throw new Error(`network_hook.get_connection_endpoint failed: ${errMsg || `exit ${result.status}`}`);
+  }
+  const host = result.stdout.trim();
+  if (!host) {
+    throw new Error("network_hook.get_connection_endpoint returned empty host");
+  }
+  return host;
+}
+
+/**
+ * Release network resources for a destroyed VM via blockhost.network_hook.
+ * Onion mode removes the hidden service; broker/manual modes are no-ops.
+ */
+function networkHookCleanup(vmName: string, mode: string): void {
+  const script =
+    "import sys\n" +
+    "from blockhost.network_hook import cleanup\n" +
+    "cleanup(sys.argv[1], sys.argv[2])\n";
+  const result = spawnSync("python3", ["-c", script, vmName, mode], {
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  if (result.status !== 0) {
+    const errMsg = (result.stderr || result.stdout || "").trim();
+    throw new Error(`network_hook.cleanup failed: ${errMsg || `exit ${result.status}`}`);
+  }
+}
+
+/**
  * Destroy a VM via the provisioner's destroy command.
  */
 async function destroyVm(vmName: string): Promise<{ success: boolean; output: string }> {
@@ -354,12 +400,27 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     console.warn(`[WARN] VM ${vmName} created but database registration failed — continuing`);
   }
 
-  // Step 4: Encrypt connection details using user's signature
+  // Step 4a: Resolve subscriber-facing host via network hook.
+  // Called unconditionally: in onion mode the hook has side effects (creating
+  // the hidden service and pushing the .onion into the VM) that must run
+  // regardless of whether the user signature is present.
+  const networkMode = getNetworkMode();
+  let host: string;
+  try {
+    host = getConnectionEndpoint(vmName, summary.ip, networkMode);
+    console.log(`[OK] Connection endpoint (mode=${networkMode}): ${host}`);
+  } catch (err) {
+    const fallback = summary.ipv6 || summary.ip;
+    console.warn(`[WARN] network_hook failed for ${vmName}: ${err}`);
+    console.warn(`[WARN] Falling back to provisioner bridge address: ${fallback}`);
+    host = fallback;
+  }
+
+  // Step 4b: Encrypt connection details using user's signature
   let userEncrypted = "0x";
 
   if (userSignature) {
-    const hostname = summary.ipv6 || summary.ip;
-    const encrypted = encryptConnectionDetails(userSignature, hostname, summary.username);
+    const encrypted = encryptConnectionDetails(userSignature, host, summary.username);
     if (encrypted) {
       userEncrypted = encrypted;
       console.log("[OK] Connection details encrypted");
@@ -525,6 +586,15 @@ export async function handleSubscriptionCancelled(event: SubscriptionCancelledEv
 
   if (success) {
     console.log(`[OK] ${output}`);
+
+    // Release network resources (hidden service for onion mode; no-op otherwise).
+    const networkMode = getNetworkMode();
+    try {
+      networkHookCleanup(vmName, networkMode);
+      console.log(`[OK] Network cleanup complete (mode=${networkMode})`);
+    } catch (err) {
+      console.warn(`[WARN] network_hook cleanup failed for ${vmName}: ${err}`);
+    }
   } else {
     console.error(`[ERROR] Failed to destroy VM: ${output}`);
   }
