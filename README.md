@@ -38,10 +38,12 @@ The engine discovers provisioner commands via a manifest file (`/usr/share/block
 | `src/admin/` | TypeScript | On-chain admin commands (port knocking, etc.) |
 | `src/reconcile/` | TypeScript | NFT state reconciliation and ownership transfer detection |
 | `src/fund-manager/` | TypeScript | Automated fund withdrawal, revenue sharing, gas management |
+| `src/addressbook/` | TypeScript | Generic addressbook (load/save/resolve), shared by ab + bw + fund-manager |
 | `src/bw/` | TypeScript | blockwallet CLI for scriptable wallet operations |
 | `src/ab/` | TypeScript | Addressbook CLI for managing wallet entries |
 | `src/is/` | TypeScript | Identity predicate CLI (NFT ownership, signature, contract checks) |
 | `src/root-agent/` | TypeScript | Client for the privileged root agent daemon |
+| `src/config/` | TypeScript | Shared config readers + ABI fragments |
 | `blockhost/engine_evm/` | Python | Installer wizard plugin (blockchain config, finalization steps) |
 | `scripts/` | TS/Python/Bash | Deployment, crypto CLI, signup page generation |
 
@@ -110,6 +112,8 @@ blockhost-engine-evm/
 │   ├── admin/                 # On-chain admin command processing
 │   ├── reconcile/             # NFT state reconciliation
 │   ├── fund-manager/          # Automated fund withdrawal & distribution
+│   ├── addressbook/           # Generic addressbook (load/save/resolve)
+│   ├── config/                # Shared config readers + ABI fragments
 │   ├── bw/                    # blockwallet CLI
 │   ├── ab/                    # addressbook CLI
 │   ├── is/                    # identity predicate CLI

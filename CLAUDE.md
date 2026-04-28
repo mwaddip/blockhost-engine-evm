@@ -103,9 +103,11 @@ blockhost-engine-evm/
 │   ├── admin/           # On-chain admin commands (ECIES-encrypted, anti-replay)
 │   ├── reconcile/       # Periodic NFT state reconciliation
 │   ├── fund-manager/    # Automated fund withdrawal, distribution & gas management
+│   ├── addressbook/     # Generic addressbook (load/save/resolve, used by ab + bw + fund-manager)
 │   ├── bw/              # blockwallet CLI (send, balance, withdraw, swap, split, who, config, plan, set)
 │   ├── ab/              # addressbook CLI (add, del, up, new, list, --init)
 │   ├── is/              # identity predicate CLI (NFT ownership, signature, contract checks)
+│   ├── config/          # Shared config readers + ABI fragments (subscription-abi, nft-abi, etc.)
 │   └── root-agent/      # Root agent client (Unix socket, privilege separation)
 └── examples/            # Deployment examples (systemd, env, config)
 ```
@@ -154,9 +156,22 @@ VMs are named based on subscription ID: `blockhost-001`, `blockhost-042`, etc. (
 - Owner-only administrative functions
 - Slippage buffer on payments (configurable, default 1%)
 
+## VM Lifecycle (provisioner-owned)
+
+VM-record creation and destruction in `vms.json` is the **provisioner's** responsibility, not the engine's, per `facts/PROVISIONER_INTERFACE.md §2`. Specifically:
+
+- `vm-create` calls `blockhost.vm_db.register_vm` itself before printing its `BLOCKHOST_RESULT:` line. The engine's `handleSubscriptionCreated` does NOT call `register_vm`.
+- `vm-destroy` calls `mark_destroyed` itself after the VM is gone. The engine's `handleSubscriptionCancelled` does NOT call `mark_destroyed`.
+
+Engines only call NFT-related vm_db methods: `set_nft_minted` (via the `blockhost-vmdb mark-nft-minted` CLI) and `extend_expiry` (via `blockhost-vmdb extend-expiry`).
+
+## Provisioner stdout parsing
+
+Provisioner CLIs that return structured data (currently `blockhost-vm-create` and `blockhost-mint-nft`) emit a single line prefixed with the literal sentinel `BLOCKHOST_RESULT: ` followed by the canonical payload (JSON for create, integer for mint). Other stdout lines are informational and ignored. Engines parse by sentinel prefix — never by "last line starting with `{`" or similar heuristics. See `facts/PROVISIONER_INTERFACE.md §2` and `facts/ENGINE_INTERFACE.md §1`.
+
 ## Reconciler (`src/reconcile/`)
 
-Runs every 5 minutes as part of the monitor polling loop. Performs two categories of checks:
+Runs every 5 minutes as part of the monitor polling loop. Performs two categories of checks. Defers when `/run/blockhost/provisioning.lock` is present (the provisioner is in the middle of a `vm-create`); the lock is provisioner-owned per `facts/PROVISIONER_INTERFACE.md §6a` — engine only checks existence, never reads or removes it.
 
 ### NFT Minting Reconciliation
 
@@ -210,13 +225,17 @@ Auto-generated on first fund cycle if not in addressbook. Private key saved to `
 
 | Setting | Default | Description |
 |---|---|---|
-| `fund_cycle_interval_hours` | 24 | Hours between fund cycles |
-| `gas_check_interval_minutes` | 30 | Minutes between gas checks |
+| `fund_cycle_interval_blocks` | (unset) | Blocks between fund cycles. **Preferred** per `facts/ENGINE_INTERFACE.md §4`. If set, wins over `_hours`. |
+| `gas_check_interval_blocks` | (unset) | Blocks between gas checks. **Preferred**. If set, wins over `_minutes`. |
+| `fund_cycle_interval_hours` | 24 | Hours between fund cycles. Legacy fallback when `_blocks` is absent. |
+| `gas_check_interval_minutes` | 30 | Minutes between gas checks. Legacy fallback. |
 | `min_withdrawal_usd` | 50 | Minimum USD value to trigger withdrawal |
 | `gas_low_threshold_usd` | 5 | Server ETH balance (in USD) that triggers a swap |
 | `gas_swap_amount_usd` | 20 | USDC amount to swap for ETH |
 | `server_stablecoin_buffer_usd` | 50 | Target stablecoin balance for server wallet |
 | `hot_wallet_gas_eth` | 0.01 | Target ETH balance for hot wallet |
+
+State (`/var/lib/blockhost/fund-manager-state.json`) dual-writes both `last_fund_cycle_block` (preferred) and `last_fund_cycle` (legacy ms timestamp), and the gas-check equivalents. The "should run" check picks the form that matches the configured interval key.
 
 **`/etc/blockhost/addressbook.json`** — role-to-wallet mapping (written by installer):
 
