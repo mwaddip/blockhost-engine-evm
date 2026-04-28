@@ -104,7 +104,8 @@ def mint_nft(
         if supply_result.returncode == 0:
             total_supply = int(supply_result.stdout.strip())
             token_id = total_supply - 1
-            print(token_id)
+            # Sentinel-prefixed result line per facts/ENGINE_INTERFACE.md §1
+            print(f"BLOCKHOST_RESULT: {token_id}")
             return tx_hash
     except (subprocess.TimeoutExpired, ValueError):
         pass

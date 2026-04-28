@@ -165,17 +165,18 @@ interface VmCreateSummary {
   username: string;
 }
 
+const RESULT_SENTINEL = "BLOCKHOST_RESULT: ";
+
 /**
- * Parse the JSON summary line from blockhost-vm-create stdout.
- * The summary is the last line starting with '{'.
+ * Parse the JSON summary line from blockhost-vm-create stdout per
+ * facts/PROVISIONER_INTERFACE.md §2: the canonical result is the line prefixed
+ * with `BLOCKHOST_RESULT: `.
  */
 function parseVmSummary(stdout: string): VmCreateSummary | null {
-  const lines = stdout.trim().split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (line.startsWith("{")) {
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith(RESULT_SENTINEL)) {
       try {
-        return JSON.parse(line) as VmCreateSummary;
+        return JSON.parse(line.slice(RESULT_SENTINEL.length)) as VmCreateSummary;
       } catch {
         return null;
       }
@@ -185,135 +186,72 @@ function parseVmSummary(stdout: string): VmCreateSummary | null {
 }
 
 /**
- * Parse the minted token ID from blockhost-mint-nft stdout.
- * The mint script outputs the token ID as an integer on stdout.
+ * Parse the minted token ID from blockhost-mint-nft stdout per
+ * facts/ENGINE_INTERFACE.md §1: the canonical line is prefixed with
+ * `BLOCKHOST_RESULT: ` followed by an integer. mint_nft.py is engine-owned
+ * and emits the sentinel, so no transitional fallback is needed here.
  */
 function parseMintTokenId(stdout: string): number | null {
-  const trimmed = stdout.trim();
-  // Look for an integer (the last line that is purely numeric)
-  const lines = trimmed.split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    const parsed = parseInt(line, 10);
-    if (!isNaN(parsed) && String(parsed) === line) {
-      return parsed;
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith(RESULT_SENTINEL)) {
+      const parsed = parseInt(line.slice(RESULT_SENTINEL.length).trim(), 10);
+      if (!isNaN(parsed)) return parsed;
+      return null;
     }
   }
   return null;
 }
 
 /**
- * Register a newly created VM in the database.
- */
-async function registerVm(
-  vmName: string,
-  vmid: number,
-  ip: string,
-  ipv6: string | null,
-  walletAddress: string,
-  expiryDays: number,
-): Promise<boolean> {
-  const script = `
-import os
-from blockhost.vm_db import get_database
-db = get_database()
-db.register_vm(
-    name=os.environ["VM_NAME"],
-    vmid=int(os.environ["VMID"]),
-    ip=os.environ["IP"],
-    ipv6=os.environ.get("IPV6") or None,
-    wallet_address=os.environ["WALLET"],
-    expiry_days=int(os.environ["EXPIRY_DAYS"]),
-)
-`;
-  return new Promise((resolve) => {
-    const proc = spawn("python3", ["-c", script], {
-      cwd: WORKING_DIR,
-      env: {
-        ...process.env,
-        VM_NAME: vmName,
-        VMID: String(vmid),
-        IP: ip,
-        IPV6: ipv6 || "",
-        WALLET: walletAddress,
-        EXPIRY_DAYS: String(expiryDays),
-      },
-    });
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        console.error(`[WARN] Failed to register VM ${vmName} in database`);
-      }
-      resolve(code === 0);
-    });
-  });
-}
-
-/**
  * Mark an NFT as minted on a VM record in the database.
  */
-async function markNftMinted(nftTokenId: number, vmName: string): Promise<boolean> {
-  const script = `
-import os
-from blockhost.vm_db import get_database
-db = get_database()
-db.set_nft_minted(os.environ["VM_NAME"], int(os.environ["NFT_TOKEN_ID"]))
-`;
-  return new Promise((resolve) => {
-    const proc = spawn("python3", ["-c", script], {
-      cwd: WORKING_DIR,
-      env: { ...process.env, VM_NAME: vmName, NFT_TOKEN_ID: String(nftTokenId) },
-    });
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        console.error(`[WARN] Failed to mark NFT ${nftTokenId} as minted for ${vmName}`);
-      }
-      resolve(code === 0);
-    });
+function markNftMinted(nftTokenId: number, vmName: string): boolean {
+  const result = spawnSync("blockhost-vmdb", ["mark-nft-minted", vmName, String(nftTokenId)], {
+    encoding: "utf8",
+    timeout: 30_000,
   });
+  if (result.status !== 0) {
+    const errMsg = (result.stderr || result.stdout || "").trim();
+    console.error(`[WARN] Failed to mark NFT ${nftTokenId} as minted for ${vmName}: ${errMsg || `exit ${result.status}`}`);
+    return false;
+  }
+  return true;
 }
 
 /**
- * Resolve the subscriber-facing host via blockhost.network_hook.
+ * Resolve the subscriber-facing host via blockhost-network-hook (COMMON_INTERFACE.md §6a).
  * In broker/manual modes this is a pass-through; in onion mode it creates
  * a hidden service and pushes the .onion into the VM. See facts/ENGINE_INTERFACE.md §13.
  * Throws on any failure so the caller can decide whether to fall back.
  */
 function getConnectionEndpoint(vmName: string, bridgeIp: string, mode: string): string {
-  const script =
-    "import sys\n" +
-    "from blockhost.network_hook import get_connection_endpoint\n" +
-    "print(get_connection_endpoint(sys.argv[1], sys.argv[2], sys.argv[3]))\n";
-  const result = spawnSync("python3", ["-c", script, vmName, bridgeIp, mode], {
+  const result = spawnSync("blockhost-network-hook", ["resolve", vmName, bridgeIp, mode], {
     encoding: "utf8",
     timeout: 120_000,
   });
   if (result.status !== 0) {
     const errMsg = (result.stderr || result.stdout || "").trim();
-    throw new Error(`network_hook.get_connection_endpoint failed: ${errMsg || `exit ${result.status}`}`);
+    throw new Error(`blockhost-network-hook resolve failed: ${errMsg || `exit ${result.status}`}`);
   }
   const host = result.stdout.trim();
   if (!host) {
-    throw new Error("network_hook.get_connection_endpoint returned empty host");
+    throw new Error("blockhost-network-hook resolve returned empty host");
   }
   return host;
 }
 
 /**
- * Release network resources for a destroyed VM via blockhost.network_hook.
+ * Release network resources for a destroyed VM via blockhost-network-hook.
  * Onion mode removes the hidden service; broker/manual modes are no-ops.
  */
 function networkHookCleanup(vmName: string, mode: string): void {
-  const script =
-    "import sys\n" +
-    "from blockhost.network_hook import cleanup\n" +
-    "cleanup(sys.argv[1], sys.argv[2])\n";
-  const result = spawnSync("python3", ["-c", script, vmName, mode], {
+  const result = spawnSync("blockhost-network-hook", ["cleanup", vmName, mode], {
     encoding: "utf8",
     timeout: 60_000,
   });
   if (result.status !== 0) {
     const errMsg = (result.stderr || result.stdout || "").trim();
-    throw new Error(`network_hook.cleanup failed: ${errMsg || `exit ${result.status}`}`);
+    throw new Error(`blockhost-network-hook cleanup failed: ${errMsg || `exit ${result.status}`}`);
   }
 }
 
@@ -391,14 +329,8 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
 
   console.log(`[INFO] VM summary: ip=${summary.ip}, vmid=${summary.vmid}`);
 
-  // Step 3b: Register VM in database
-  const registered = await registerVm(
-    vmName, summary.vmid, summary.ip, summary.ipv6 || null,
-    event.subscriber, expiryDays,
-  );
-  if (!registered) {
-    console.warn(`[WARN] VM ${vmName} created but database registration failed — continuing`);
-  }
+  // VM is already registered in vms.json by the provisioner — see
+  // facts/PROVISIONER_INTERFACE.md §2 (vm-create / Database side effects).
 
   // Step 4a: Resolve subscriber-facing host via network hook.
   // Called unconditionally: in onion mode the hook has side effects (creating
@@ -497,47 +429,23 @@ export async function handleSubscriptionExtended(event: SubscriptionExtendedEven
   // Calculate additional days from current time to new expiry
   const additionalDays = calculateExpiryDays(event.newExpiresAt);
 
-  // Use Python to update the database and check if VM needs to be resumed
-  // Returns "NEEDS_RESUME" if the VM was suspended and should be started
-  const script = `
-import os
-from blockhost.vm_db import get_database
+  // blockhost-vmdb extend-expiry returns "NEEDS_RESUME" on line 2 if VM was suspended.
+  const extendResult = spawnSync(
+    "blockhost-vmdb",
+    ["extend-expiry", vmName, String(additionalDays)],
+    { encoding: "utf8", timeout: 30_000 },
+  );
 
-vm_name = os.environ["VM_NAME"]
-additional_days = int(os.environ["ADDITIONAL_DAYS"])
-
-db = get_database()
-vm = db.get_vm(vm_name)
-if vm:
-    old_status = vm.get('status', 'unknown')
-    db.extend_expiry(vm_name, additional_days)
-    print(f"Extended {vm['vm_name']} expiry by {additional_days} days")
-    if old_status == 'suspended':
-        print("NEEDS_RESUME")
-else:
-    print(f"VM {vm_name} not found in database")
-`;
-
-  const proc = spawn("python3", ["-c", script], {
-    cwd: WORKING_DIR,
-    env: { ...process.env, VM_NAME: vmName, ADDITIONAL_DAYS: String(additionalDays) },
-  });
-
-  let output = "";
-  proc.stdout.on("data", (data) => { output += data.toString(); });
-  proc.stderr.on("data", (data) => { output += data.toString(); });
-
-  const needsResume = await new Promise<boolean>((resolve) => {
-    proc.on("close", (code) => {
-      if (code === 0) {
-        console.log(`[OK] ${output.trim().split('\n')[0]}`);
-        resolve(output.includes("NEEDS_RESUME"));
-      } else {
-        console.error(`[ERROR] Failed to extend expiry: ${output}`);
-        resolve(false);
-      }
-    });
-  });
+  let needsResume = false;
+  if (extendResult.status === 0) {
+    const output = (extendResult.stdout || "").trim();
+    const firstLine = output.split("\n")[0];
+    if (firstLine) console.log(`[OK] ${firstLine}`);
+    needsResume = output.includes("NEEDS_RESUME");
+  } else {
+    const errMsg = (extendResult.stderr || extendResult.stdout || "").trim();
+    console.error(`[ERROR] Failed to extend expiry: ${errMsg || `exit ${extendResult.status}`}`);
+  }
 
   // If VM was suspended, resume it
   if (needsResume) {

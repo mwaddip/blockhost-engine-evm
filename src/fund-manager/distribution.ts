@@ -117,12 +117,14 @@ export async function distributeRevenueShares(
 
   const balances = await getAllTokenBalances(book.hot!.address, contract, provider);
 
+  // Use 10000× scale (vs the previous 100×) so sub-1% percentages keep precision.
+  // 0.5% → 5000; 0.005% → 50; 0.0001% → 1. Denominator 1_000_000n preserves the math.
+  const totalScaled = BigInt(Math.round(revenueConfig.total_percent * 10000));
+
   for (const tb of balances) {
     if (tb.balance === 0n) continue;
 
-    // Calculate total share amount
-    const totalShareAmount =
-      (tb.balance * BigInt(Math.round(revenueConfig.total_percent * 100))) / 10000n;
+    const totalShareAmount = (tb.balance * totalScaled) / 1_000_000n;
     if (totalShareAmount === 0n) continue;
 
     // Distribute to each recipient
@@ -141,8 +143,8 @@ export async function distributeRevenueShares(
         // Last recipient gets remainder; clamp to 0 if rounding caused overallocation
         share = distributed >= totalShareAmount ? 0n : totalShareAmount - distributed;
       } else {
-        share = (totalShareAmount * BigInt(Math.round(recipient.percent * 100))) /
-          BigInt(Math.round(revenueConfig.total_percent * 100));
+        const recipientScaled = BigInt(Math.round(recipient.percent * 10000));
+        share = (totalShareAmount * recipientScaled) / totalScaled;
       }
       distributed += share;
       if (share === 0n) continue;

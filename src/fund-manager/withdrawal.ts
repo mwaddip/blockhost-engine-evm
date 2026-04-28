@@ -73,15 +73,16 @@ export async function withdrawFromContract(
       );
       if (balance === 0n) continue;
 
-      // Check USD value
+      // Check USD value. Skip on price-query failure — coercing to $1 makes
+      // wrong withdrawal decisions for non-stablecoin tokens.
       let usdValue: number;
       try {
         const priceUsdCents: bigint = await contract.getTokenPriceUsdCents(pmId);
         const balanceFloat = parseFloat(ethers.formatUnits(balance, decimals));
         usdValue = (balanceFloat * Number(priceUsdCents)) / 100;
       } catch (err) {
-        usdValue = parseFloat(ethers.formatUnits(balance, decimals));
-        console.warn(`[FUND] Price query failed for ${symbol} (pmId=${pmId}), using $1 fallback: ${err}`);
+        console.warn(`[FUND] Price query failed for ${symbol} (pmId=${pmId}), skipping withdrawal this cycle: ${err}`);
+        continue;
       }
 
       if (usdValue < config.min_withdrawal_usd) {

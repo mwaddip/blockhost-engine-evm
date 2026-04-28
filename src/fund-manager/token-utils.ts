@@ -81,10 +81,10 @@ export async function getAllTokenBalances(
             const balanceFloat = parseFloat(ethers.formatUnits(balance, decimals));
             usdValue = (balanceFloat * Number(priceUsdCents)) / 100;
           } catch (err) {
-            // Price query failed; assume $1 per token (stablecoin fallback)
-            const balanceFloat = parseFloat(ethers.formatUnits(balance, decimals));
-            usdValue = balanceFloat;
-            console.warn(`[FUND] Price query failed for ${symbol} (pmId=${pmId}), using $1 fallback: ${err}`);
+            // Skip on price-query failure — coercing to $1 produces wrong distribution
+            // decisions for non-stablecoins. The reconciler revisits next cycle.
+            console.warn(`[FUND] Price query failed for ${symbol} (pmId=${pmId}), skipping: ${err}`);
+            continue;
           }
         }
 

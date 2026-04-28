@@ -113,14 +113,30 @@ async function transitionToPostLogin(txHash: string, loginIp: string): Promise<v
 
   console.log(`[KNOCK] Transitioning to post-login for IP ${loginIp} (tx: ${txHash})`);
 
-  // Close old (phase 1) rules using the original source filter
-  for (const port of knock.ports) {
-    await closePort(port, knock.source);
+  // Open per-IP rules FIRST. If this fails, abort without closing phase 1
+  // so the user keeps their existing access.
+  const openedPorts: number[] = [];
+  try {
+    for (const port of knock.ports) {
+      await openPort(port, loginIp);
+      openedPorts.push(port);
+    }
+  } catch (err) {
+    console.error(`[KNOCK] Failed to open per-IP rules for ${loginIp}, aborting transition: ${err}`);
+    // Roll back the partially-opened per-IP rules; phase 1 stays in place.
+    for (const port of openedPorts) {
+      try {
+        await closePort(port, loginIp);
+      } catch {
+        // best-effort cleanup
+      }
+    }
+    return;
   }
 
-  // Open per-IP rules
+  // Per-IP rules are in place — now safe to close phase 1.
   for (const port of knock.ports) {
-    await openPort(port, loginIp);
+    await closePort(port, knock.source);
   }
 
   // Cancel duration timeout — heartbeat manages lifetime now

@@ -91,7 +91,6 @@ trap cleanup EXIT
 deploy_nft() {
     local nft_name="BlockhostAccess"
     local nft_symbol="BHA"
-    local default_image_uri=""
 
     if [ -f "$NFT_ABI_PATH" ]; then
         # Use pre-compiled bytecode
@@ -109,10 +108,9 @@ if not bc:
 print(bc)
 ") || { echo "Error: failed to extract NFT bytecode" >&2; return 1; }
 
-        # Encode constructor args: (string, string, string)
         local encoded_args
-        encoded_args=$(cast abi-encode "constructor(string,string,string)" \
-            "$nft_name" "$nft_symbol" "$default_image_uri") || {
+        encoded_args=$(cast abi-encode "constructor(string,string)" \
+            "$nft_name" "$nft_symbol") || {
             echo "Error: failed to encode NFT constructor args" >&2
             return 1
         }
@@ -157,7 +155,7 @@ TOML
         local result
         result=$(cd "$TMPDIR" && forge create \
             "src/AccessCredentialNFT.sol:AccessCredentialNFT" \
-            --constructor-args "$nft_name" "$nft_symbol" "$default_image_uri" \
+            --constructor-args "$nft_name" "$nft_symbol" \
             --private-key "$DEPLOYER_KEY" \
             --rpc-url "$RPC_URL" \
             --json 2>&1) || {
