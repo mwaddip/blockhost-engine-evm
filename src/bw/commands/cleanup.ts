@@ -7,8 +7,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveWallet } from "../../fund-manager/addressbook";
+import type { Addressbook } from "../../addressbook";
+import { resolveWallet } from "../../addressbook";
 
 /**
  * Sweep ETH from all signing-capable addressbook wallets to a target address.

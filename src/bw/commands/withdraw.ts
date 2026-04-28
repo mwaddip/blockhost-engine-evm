@@ -10,21 +10,30 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveAddress, resolveWallet } from "../../fund-manager/addressbook";
-import { SUBSCRIPTION_ABI, ERC20_ABI } from "../../fund-manager/token-utils";
+import type { Addressbook } from "../../addressbook";
+import { resolveAddress, resolveWallet } from "../../addressbook";
+import {
+  SUBSCRIPTION_ABI,
+  ERC20_ABI,
+  getTokenBalance,
+  listActivePaymentTokens,
+} from "../../fund-manager/token-utils";
 import { resolveToken } from "../cli-utils";
 
 /**
  * Core withdraw operation — withdraw full balance of one token from contract.
  * Returns the tx hash, or null if the contract has zero balance of that token.
+ *
+ * Optionally accepts a pre-fetched balance (callers like the fund cycle have
+ * already queried it) to skip a redundant balanceOf RPC.
  */
 export async function executeWithdraw(
   tokenAddress: string,
   toRole: string,
   book: Addressbook,
   provider: ethers.Provider,
-  contractAddress: string
+  contractAddress: string,
+  prefetchedBalance?: bigint,
 ): Promise<string | null> {
   const serverWallet = resolveWallet("server", book, provider);
   if (!serverWallet) throw new Error("Cannot withdraw: server wallet not available");
@@ -32,9 +41,13 @@ export async function executeWithdraw(
   const toAddress = resolveAddress(toRole, book);
   if (!toAddress) throw new Error(`Cannot resolve recipient '${toRole}'`);
 
-  // Check contract balance first
-  const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-  const balance: bigint = await token.balanceOf(contractAddress);
+  let balance: bigint;
+  if (prefetchedBalance !== undefined) {
+    balance = prefetchedBalance;
+  } else {
+    const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+    balance = (await token.balanceOf(contractAddress)) as bigint;
+  }
   if (balance === 0n) return null;
 
   const contract = new ethers.Contract(contractAddress, SUBSCRIPTION_ABI, serverWallet);
@@ -52,37 +65,27 @@ export async function executeWithdrawAll(
   toRole: string,
   book: Addressbook,
   provider: ethers.Provider,
-  contractAddress: string
+  contractAddress: string,
 ): Promise<{ tokenAddress: string; symbol: string; amount: string; txHash: string }[]> {
   const contract = new ethers.Contract(contractAddress, SUBSCRIPTION_ABI, provider);
-  const paymentMethodIds: bigint[] = await contract.getPaymentMethodIds();
-
-  // Collect unique token addresses
-  const tokens = new Map<string, string>(); // lowercase addr -> original addr
-  for (const pmId of paymentMethodIds) {
-    const [tokenAddress, , , , , active] = await contract.getPaymentMethod(pmId);
-    if (!active) continue;
-    tokens.set(tokenAddress.toLowerCase(), tokenAddress);
-  }
+  const tokens = await listActivePaymentTokens(contract);
 
   const results: { tokenAddress: string; symbol: string; amount: string; txHash: string }[] = [];
 
-  for (const [, tokenAddress] of tokens) {
-    const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-    const balance: bigint = await token.balanceOf(contractAddress);
+  for (const { address: tokenAddress } of tokens) {
+    const { balance, decimals, symbol } = await getTokenBalance(
+      tokenAddress, contractAddress, provider,
+    );
     if (balance === 0n) continue;
 
-    const [decimals, symbol] = await Promise.all([
-      token.decimals() as Promise<number>,
-      token.symbol() as Promise<string>,
-    ]);
-
-    const txHash = await executeWithdraw(tokenAddress, toRole, book, provider, contractAddress);
+    const txHash = await executeWithdraw(
+      tokenAddress, toRole, book, provider, contractAddress, balance,
+    );
     if (txHash) {
       results.push({
         tokenAddress,
         symbol,
-        amount: ethers.formatUnits(balance, Number(decimals)),
+        amount: ethers.formatUnits(balance, decimals),
         txHash,
       });
     }

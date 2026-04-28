@@ -18,7 +18,7 @@
  *   BLOCKHOST_CONTRACT   — Subscription contract address
  */
 
-import { loadAddressbook } from "../fund-manager/addressbook";
+import { loadAddressbook } from "../addressbook";
 import { createProviderAndContract } from "./cli-utils";
 import { sendCommand } from "./commands/send";
 import { balanceCommand } from "./commands/balance";

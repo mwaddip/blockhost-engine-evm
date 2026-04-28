@@ -2,7 +2,7 @@
  * ab del <name> — Delete entry from addressbook
  */
 
-import { loadAddressbook, saveAddressbook } from "../../fund-manager/addressbook";
+import { loadAddressbook, saveAddressbook } from "../../addressbook";
 import { assertMutable, assertValidName } from "../index";
 
 export async function delCommand(args: string[]): Promise<void> {

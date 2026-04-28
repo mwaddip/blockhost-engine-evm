@@ -3,7 +3,7 @@
  */
 
 import { ethers } from "ethers";
-import { loadAddressbook, saveAddressbook } from "../../fund-manager/addressbook";
+import { loadAddressbook, saveAddressbook } from "../../addressbook";
 import { assertMutable, assertValidName } from "../index";
 
 export async function addCommand(args: string[]): Promise<void> {

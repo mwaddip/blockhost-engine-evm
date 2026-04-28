@@ -61,7 +61,7 @@ export function loadNonces(): void {
 }
 
 /**
- * Save nonces to persistent storage
+ * Save nonces to persistent storage. Synchronous; writes a tmp file + rename.
  */
 function saveNonces(): void {
   try {
@@ -83,6 +83,30 @@ function saveNonces(): void {
   }
 }
 
+// --- Debounced save ---
+//
+// Per-mark synchronous writes are O(N²) total IO over a long-running daemon
+// (each write rewrites the entire JSON). Coalesce successive marks into a
+// single write. The in-memory map is the source of truth for `isNonceUsed`,
+// so a delayed save is safe — replay protection still works during the window.
+//
+// The risk of an unsaved nonce window is bounded: if the process crashes
+// before the save flush, those nonces become reusable. Tradeoff: 100ms of
+// replay-window risk vs N× disk writes per polling cycle. Acceptable.
+
+const SAVE_DEBOUNCE_MS = 100;
+let saveTimer: NodeJS.Timeout | null = null;
+
+function scheduleSave(): void {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveNonces();
+  }, SAVE_DEBOUNCE_MS);
+  // Don't keep the event loop alive just for this timer.
+  saveTimer.unref?.();
+}
+
 /**
  * Check if a nonce has already been used
  */
@@ -92,12 +116,14 @@ export function isNonceUsed(nonce: string): boolean {
 }
 
 /**
- * Mark a nonce as used (call BEFORE executing command)
+ * Mark a nonce as used (call BEFORE executing command).
+ * Disk save is debounced ({@link SAVE_DEBOUNCE_MS}); the in-memory map updates
+ * immediately so replay protection is effective without waiting for the flush.
  */
 export function markNonceUsed(nonce: string): void {
   loadNonces();
   seenNonces.set(nonce, Math.floor(Date.now() / 1000));
-  saveNonces();
+  scheduleSave();
 }
 
 /**
@@ -119,6 +145,17 @@ export function pruneOldNonces(maxAgeSeconds: number): void {
 
   if (pruned > 0) {
     console.log(`[ADMIN] Pruned ${pruned} old nonces`);
+    scheduleSave();
+  }
+}
+
+/**
+ * Force any pending debounced save to flush. Call before shutdown.
+ */
+export function flushNonceSaves(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
     saveNonces();
   }
 }

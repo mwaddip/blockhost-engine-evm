@@ -9,8 +9,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveWallet } from "../../fund-manager/addressbook";
+import type { Addressbook } from "../../addressbook";
+import { resolveWallet } from "../../addressbook";
 import { SUBSCRIPTION_ABI } from "../../fund-manager/token-utils";
 
 export async function planCommand(

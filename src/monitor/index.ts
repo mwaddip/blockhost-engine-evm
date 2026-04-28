@@ -28,22 +28,12 @@ import {
   runFundCycle,
   shouldRunGasCheck,
   runGasCheck,
-  getFundCycleInterval,
-  getGasCheckInterval,
+  describeFundCycleInterval,
+  describeGasCheckInterval,
 } from "../fund-manager";
+import { SUBSCRIPTION_ABI } from "../config/subscription-abi";
 
-// Contract ABI - only the events we care about
-const CONTRACT_ABI = [
-  "event PlanCreated(uint256 indexed planId, string name, uint256 pricePerDayUsdCents)",
-  "event PlanUpdated(uint256 indexed planId, string name, uint256 pricePerDayUsdCents, bool active)",
-  "event SubscriptionCreated(uint256 indexed subscriptionId, uint256 indexed planId, address indexed subscriber, uint256 expiresAt, uint256 paidAmount, address paymentToken, bytes userEncrypted)",
-  "event SubscriptionExtended(uint256 indexed subscriptionId, uint256 indexed planId, address indexed extendedBy, uint256 newExpiresAt, uint256 paidAmount, address paymentToken)",
-  "event SubscriptionCancelled(uint256 indexed subscriptionId, uint256 indexed planId, address indexed subscriber)",
-  "event PrimaryStablecoinSet(address indexed stablecoinAddress, uint8 decimals)",
-  "event PaymentMethodAdded(uint256 indexed paymentMethodId, address tokenAddress, address pairAddress, address stablecoinAddress)",
-  "event PaymentMethodUpdated(uint256 indexed paymentMethodId, bool active)",
-  "event FundsWithdrawn(address indexed token, address indexed to, uint256 amount)",
-];
+const CONTRACT_ABI = SUBSCRIPTION_ABI;
 
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
 const PID_FILE = "/run/blockhost/monitor.pid";
@@ -219,8 +209,8 @@ async function main() {
   let lastProcessedBlock = await provider.getBlockNumber();
   console.log(`Starting from block: ${lastProcessedBlock}`);
   console.log(`NFT reconciliation: every ${getReconcileInterval() / 1000}s`);
-  console.log(`Fund cycle: every ${getFundCycleInterval() / 3600000}h`);
-  console.log(`Gas check: every ${getGasCheckInterval() / 60000}min`);
+  console.log(`Fund cycle: every ${describeFundCycleInterval()}`);
+  console.log(`Gas check: every ${describeGasCheckInterval()}`);
   console.log("\nPolling for events...\n");
 
   // Polling loop
@@ -256,7 +246,7 @@ async function main() {
         }
 
         // Run fund withdrawal & distribution cycle periodically
-        if (shouldRunFundCycle()) {
+        if (await shouldRunFundCycle(provider)) {
           try {
             await runFundCycle(provider);
           } catch (err) {
@@ -265,7 +255,7 @@ async function main() {
         }
 
         // Check gas balance and swap if needed
-        if (shouldRunGasCheck()) {
+        if (await shouldRunGasCheck(provider)) {
           try {
             await runGasCheck(provider);
           } catch (err) {

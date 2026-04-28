@@ -89,8 +89,12 @@
                     <p class="text-muted mt-1" style="font-size: 0.75rem;">
                         Store this private key in a secure location. You will need it to manage your contracts.
                     </p>
+                    <!-- Hidden field stays empty on render — never pre-fill private keys
+                         from server-side state. JS populates it after wallet generation
+                         or import. If the user navigates back after submit, they re-generate
+                         or re-paste; the previously-supplied key is already on disk. -->
                     <input type="hidden" name="deployer_key" id="deployer-key-hidden"
-                           value="{{ blockchain.get('deployer_key', '') }}">
+                           value="">
 
                     <!-- Balance check section -->
                     <div id="balance-section" style="margin-top: 1rem; padding: 1rem; background: var(--bg-input); border-radius: 4px;">
@@ -126,7 +130,7 @@
                     <label for="import_key">Private Key</label>
                     <input type="password" id="import_key" name="import_key"
                            placeholder="0x..." autocomplete="off"
-                           value="{{ blockchain.get('deployer_key', '') if blockchain.get('wallet_mode') == 'import' else '' }}">
+                           value="">
                     <p class="text-muted mt-1" style="font-size: 0.75rem;">
                         64 hex characters (with or without 0x prefix)
                     </p>

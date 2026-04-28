@@ -14,6 +14,7 @@ import { loadBlockhostConfig } from "../config/blockhost-config";
 import { NFT_READ_ABI } from "../config/nft-abi";
 
 const VMS_JSON_PATH = "/var/lib/blockhost/vms.json";
+const PROVISIONING_LOCK_PATH = "/run/blockhost/provisioning.lock";
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface VmEntry {
@@ -176,6 +177,13 @@ async function reconcileOwnership(
 export async function runReconciliation(provider: ethers.Provider): Promise<void> {
   // Concurrency guard
   if (reconcileInProgress) {
+    return;
+  }
+
+  // If a vm-create is in flight (provisioner holds the lock), defer.
+  // The lock is provisioner-owned per facts/PROVISIONER_INTERFACE.md §6a;
+  // we only check for its existence — never read its PID, never remove it.
+  if (fs.existsSync(PROVISIONING_LOCK_PATH)) {
     return;
   }
 

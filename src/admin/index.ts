@@ -8,7 +8,7 @@ import { execFileSync } from "child_process";
 import { ethers } from "ethers";
 import type { AdminCommand, AdminConfig, CommandResult, CommandDatabase } from "./types";
 import { loadCommandDatabase, checkDestination, getServerPrivateKeyPath, loadServerPublicKey } from "./config";
-import { isNonceUsed, markNonceUsed, pruneOldNonces, loadNonces } from "./nonces";
+import { isNonceUsed, markNonceUsed, pruneOldNonces, loadNonces, flushNonceSaves } from "./nonces";
 import { executeKnock, closeAllKnocks } from "./handlers/knock";
 
 // Action handlers
@@ -165,23 +165,43 @@ export async function processAdminCommands(
   // Periodically prune old nonces
   pruneOldNonces(adminConfig.max_command_age || 300);
 
-  // Process each block
-  for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
-    try {
-      // Get block with full transaction data
-      const block = await provider.getBlock(blockNum, true);
-      if (!block || !block.prefetchedTransactions) {
-        continue;
-      }
+  // Fetch all blocks in the range concurrently. After downtime this can be
+  // hundreds of blocks; per-block sequential `await provider.getBlock(...)`
+  // stalls the polling tick. Concurrency is capped by the JSON-RPC client
+  // and the provider's batching.
+  const blockNums: number[] = [];
+  for (let n = fromBlock; n <= toBlock; n++) blockNums.push(n);
 
-      // Check each transaction
-      for (const tx of block.prefetchedTransactions) {
-        await processTransaction(tx, adminConfig, serverPublicKey || '', commandDb);
-      }
-    } catch (err) {
-      console.error(`[ADMIN] Error processing block ${blockNum}: ${err}`);
+  const blocks = await Promise.all(
+    blockNums.map((n) =>
+      provider.getBlock(n, true).catch((err) => {
+        console.error(`[ADMIN] Error fetching block ${n}: ${err}`);
+        return null;
+      }),
+    ),
+  );
+
+  for (const block of blocks) {
+    if (!block) continue;
+    if (!block.prefetchedTransactions) {
+      warnMissingPrefetchedTransactionsOnce();
+      continue;
+    }
+    for (const tx of block.prefetchedTransactions) {
+      await processTransaction(tx, adminConfig, serverPublicKey || '', commandDb);
     }
   }
+}
+
+let _warnedMissingPrefetched = false;
+function warnMissingPrefetchedTransactionsOnce(): void {
+  if (_warnedMissingPrefetched) return;
+  _warnedMissingPrefetched = true;
+  console.warn(
+    `[ADMIN] Provider returned a block without prefetchedTransactions; admin commands ` +
+    `in this block range cannot be scanned. Some providers don't support ` +
+    `getBlock(_, true). This is reported once per process.`,
+  );
 }
 
 /**
@@ -230,7 +250,9 @@ async function processTransaction(
     return;
   }
 
-  // Mark nonce as used BEFORE executing (prevents race conditions)
+  // Burn the nonce before dispatching. If dispatch crashes the nonce is lost
+  // (the admin retries with a fresh nonce); this is the lesser evil compared
+  // to a crash mid-dispatch leaving the nonce reusable for replay.
   markNonceUsed(cmd.nonce);
 
   console.log(`[ADMIN] Executing command '${cmd.command}' from tx: ${tx.hash}`);
@@ -258,6 +280,7 @@ export function initAdminCommands(): void {
  */
 export async function shutdownAdminCommands(): Promise<void> {
   await closeAllKnocks();
+  flushNonceSaves();
   console.log(`[ADMIN] Admin command system shutdown`);
 }
 

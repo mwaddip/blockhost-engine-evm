@@ -7,8 +7,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveWallet } from "../../fund-manager/addressbook";
+import type { Addressbook } from "../../addressbook";
+import { resolveWallet } from "../../addressbook";
 import { ERC20_ABI } from "../../fund-manager/token-utils";
 import { getChainConfig, UNISWAP_V2_ROUTER_ABI } from "../../fund-manager/chain-pools";
 import { resolveToken } from "../cli-utils";

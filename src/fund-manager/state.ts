@@ -11,6 +11,8 @@ const STATE_FILE = "/var/lib/blockhost/fund-manager-state.json";
 const STATE_DIR = path.dirname(STATE_FILE);
 
 const DEFAULT_STATE: FundManagerState = {
+  last_fund_cycle_block: 0,
+  last_gas_check_block: 0,
   last_fund_cycle: 0,
   last_gas_check: 0,
   hot_wallet_generated: false,

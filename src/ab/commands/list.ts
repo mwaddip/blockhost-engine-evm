@@ -2,7 +2,7 @@
  * ab list — Show all addressbook entries
  */
 
-import { loadAddressbook } from "../../fund-manager/addressbook";
+import { loadAddressbook } from "../../addressbook";
 
 export function listCommand(): void {
   const book = loadAddressbook();

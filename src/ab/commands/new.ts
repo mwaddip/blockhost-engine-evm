@@ -2,7 +2,7 @@
  * ab new <name> — Generate new wallet via root agent and add to addressbook
  */
 
-import { loadAddressbook } from "../../fund-manager/addressbook";
+import { loadAddressbook } from "../../addressbook";
 import { generateWallet as rootAgentGenerateWallet } from "../../root-agent/client";
 import { assertMutable, assertValidName } from "../index";
 

@@ -9,6 +9,8 @@ import { loadBlockhostConfig } from "../config/blockhost-config";
 const REVENUE_SHARE_PATH = "/etc/blockhost/revenue-share.json";
 
 const DEFAULTS: FundManagerConfig = {
+  fund_cycle_interval_blocks: null,
+  gas_check_interval_blocks: null,
   fund_cycle_interval_hours: 24,
   gas_check_interval_minutes: 30,
   min_withdrawal_usd: 50,
@@ -19,7 +21,11 @@ const DEFAULTS: FundManagerConfig = {
 };
 
 /**
- * Load fund manager configuration from blockhost.yaml
+ * Load fund manager configuration from blockhost.yaml.
+ *
+ * Block-based interval keys (`*_interval_blocks`) take precedence per
+ * facts/ENGINE_INTERFACE.md §4. The time-based keys (`*_hours`, `*_minutes`)
+ * are accepted for backwards compatibility.
  */
 export function loadFundManagerConfig(): FundManagerConfig {
   try {
@@ -34,6 +40,14 @@ export function loadFundManagerConfig(): FundManagerConfig {
     }
 
     return {
+      fund_cycle_interval_blocks:
+        typeof fm.fund_cycle_interval_blocks === "number"
+          ? fm.fund_cycle_interval_blocks
+          : null,
+      gas_check_interval_blocks:
+        typeof fm.gas_check_interval_blocks === "number"
+          ? fm.gas_check_interval_blocks
+          : null,
       fund_cycle_interval_hours:
         (fm.fund_cycle_interval_hours as number) ?? DEFAULTS.fund_cycle_interval_hours,
       gas_check_interval_minutes:

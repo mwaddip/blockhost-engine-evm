@@ -7,43 +7,33 @@ saves the keyfile, and adds the wallet to the addressbook.
 
 import json
 import secrets
+import subprocess
 from pathlib import Path
 
 from _common import CONFIG_DIR, SHORT_NAME_RE, WALLET_DENY_NAMES
-
-from Cryptodome.Hash import keccak
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 
 ADDRESSBOOK_PATH = CONFIG_DIR / "addressbook.json"
 
 
-def _keccak256(data: bytes) -> bytes:
-    k = keccak.new(digest_bits=256)
-    k.update(data)
-    return k.digest()
-
-
 def _derive_evm_address(private_hex: str) -> str:
-    """Derive EIP-55 checksummed EVM address from a hex private key."""
-    priv_int = int(private_hex, 16)
-    priv_key = ec.derive_private_key(priv_int, ec.SECP256K1(), default_backend())
-    pub_bytes = priv_key.public_key().public_bytes(
-        Encoding.X962, PublicFormat.UncompressedPoint
-    )
-    # keccak256 of uncompressed pubkey without the 0x04 prefix, last 20 bytes
-    addr_bytes = _keccak256(pub_bytes[1:])[-20:]
+    """Derive EIP-55 checksummed EVM address from a hex private key.
 
-    # EIP-55 checksum
-    addr_hex = addr_bytes.hex()
-    addr_hash = _keccak256(addr_hex.encode("ascii")).hex()
-    checksummed = "0x" + "".join(
-        c.upper() if int(addr_hash[i], 16) >= 8 else c
-        for i, c in enumerate(addr_hex)
+    Shells out to /usr/bin/bhcrypt (the engine's crypto CLI) so EIP-55
+    checksum logic lives in exactly one place. bhcrypt ships in the same
+    .deb as this root agent action plugin, so the binary is always present.
+    """
+    result = subprocess.run(
+        ["bhcrypt", "key-to-address", "--key", private_hex],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
     )
-    return checksummed
+    address = result.stdout.strip()
+    if not address.startswith("0x") or len(address) != 42:
+        raise RuntimeError(f"bhcrypt returned invalid address: {address!r}")
+    return address
 
 
 def _load_addressbook() -> dict:

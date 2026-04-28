@@ -10,7 +10,7 @@
 
 import { ethers } from "ethers";
 import { loadFundManagerConfig, loadRevenueShareConfig } from "./config";
-import { loadAddressbook, ensureHotWallet } from "./addressbook";
+import { loadAddressbook, ensureHotWallet } from "../addressbook";
 import { loadState, updateState } from "./state";
 import { SUBSCRIPTION_ABI } from "./token-utils";
 import { withdrawFromContract } from "./withdrawal";
@@ -30,35 +30,47 @@ const fundCycleIntervalMs = config.fund_cycle_interval_hours * 60 * 60 * 1000;
 const gasCheckIntervalMs = config.gas_check_interval_minutes * 60 * 1000;
 
 /**
- * Check if the fund cycle should run (based on interval)
+ * Should the fund cycle run? Block-based interval wins over time-based when
+ * configured (facts/ENGINE_INTERFACE.md §4). Provider passed in so the check
+ * can read the current chain head.
  */
-export function shouldRunFundCycle(): boolean {
+export async function shouldRunFundCycle(provider: ethers.Provider): Promise<boolean> {
   const state = loadState();
-  const now = Date.now();
-  return now - state.last_fund_cycle >= fundCycleIntervalMs;
+  if (config.fund_cycle_interval_blocks !== null) {
+    const currentBlock = await provider.getBlockNumber();
+    return currentBlock - state.last_fund_cycle_block >= config.fund_cycle_interval_blocks;
+  }
+  return Date.now() - state.last_fund_cycle >= fundCycleIntervalMs;
 }
 
 /**
- * Check if the gas check should run (based on interval)
+ * Should the gas check run? Block-based interval wins when configured.
  */
-export function shouldRunGasCheck(): boolean {
+export async function shouldRunGasCheck(provider: ethers.Provider): Promise<boolean> {
   const state = loadState();
-  const now = Date.now();
-  return now - state.last_gas_check >= gasCheckIntervalMs;
+  if (config.gas_check_interval_blocks !== null) {
+    const currentBlock = await provider.getBlockNumber();
+    return currentBlock - state.last_gas_check_block >= config.gas_check_interval_blocks;
+  }
+  return Date.now() - state.last_gas_check >= gasCheckIntervalMs;
 }
 
 /**
- * Get fund cycle interval in milliseconds
+ * Human-readable description of the configured fund cycle interval, for logs.
  */
-export function getFundCycleInterval(): number {
-  return fundCycleIntervalMs;
+export function describeFundCycleInterval(): string {
+  return config.fund_cycle_interval_blocks !== null
+    ? `${config.fund_cycle_interval_blocks} blocks`
+    : `${config.fund_cycle_interval_hours}h`;
 }
 
 /**
- * Get gas check interval in milliseconds
+ * Human-readable description of the configured gas check interval, for logs.
  */
-export function getGasCheckInterval(): number {
-  return gasCheckIntervalMs;
+export function describeGasCheckInterval(): string {
+  return config.gas_check_interval_blocks !== null
+    ? `${config.gas_check_interval_blocks} blocks`
+    : `${config.gas_check_interval_minutes}min`;
 }
 
 /**
@@ -116,7 +128,12 @@ export async function runFundCycle(provider: ethers.Provider): Promise<void> {
     // Step 5: Remainder to admin (hot → admin)
     await sendRemainderToAdmin(book, provider, contract);
 
-    updateState({ last_fund_cycle: Date.now() });
+    // Dual-write block height (preferred per facts §6) + ms timestamp (legacy).
+    const currentBlock = await provider.getBlockNumber();
+    updateState({
+      last_fund_cycle_block: currentBlock,
+      last_fund_cycle: Date.now(),
+    });
     console.log("[FUND] Fund cycle complete");
   } catch (err) {
     console.error(`[FUND] Error during fund cycle: ${err}`);
@@ -151,7 +168,16 @@ export async function runGasCheck(provider: ethers.Provider): Promise<void> {
   } catch (err) {
     console.error(`[GAS] Error during gas check: ${err}`);
   } finally {
-    updateState({ last_gas_check: Date.now() });
+    // Dual-write block height (preferred) + ms timestamp (legacy).
+    try {
+      const currentBlock = await provider.getBlockNumber();
+      updateState({
+        last_gas_check_block: currentBlock,
+        last_gas_check: Date.now(),
+      });
+    } catch {
+      updateState({ last_gas_check: Date.now() });
+    }
     gasCheckInProgress = false;
   }
 }

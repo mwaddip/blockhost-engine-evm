@@ -1,16 +1,22 @@
 /**
- * Addressbook loading, saving, and resolution utilities
- * Shared between fund-manager and bw CLI
+ * Addressbook loading, saving, and resolution utilities.
+ * Used by fund-manager, bw CLI, and ab CLI.
  */
 
 import * as fs from "fs";
 import { ethers } from "ethers";
-import type { Addressbook, AddressbookEntry } from "./types";
+import type { Addressbook } from "./types";
 import { walletFromKeyfile } from "./wallet";
-import { addressbookSave, generateWallet as rootAgentGenerateWallet } from "../root-agent/client";
+import {
+  addressbookSave,
+  generateWallet as rootAgentGenerateWallet,
+} from "../root-agent/client";
 
 const ADDRESSBOOK_PATH = "/etc/blockhost/addressbook.json";
 const HOT_KEY_PATH = "/etc/blockhost/hot.key";
+
+export type { Addressbook, AddressbookEntry } from "./types";
+export { walletFromKeyfile } from "./wallet";
 
 /**
  * Load addressbook from /etc/blockhost/addressbook.json
@@ -52,7 +58,6 @@ export async function saveAddressbook(book: Addressbook): Promise<void> {
  * Accepts a role name (looked up in addressbook) or a raw 0x address.
  */
 export function resolveAddress(identifier: string, book: Addressbook): string | null {
-  // Raw address
   if (identifier.startsWith("0x")) {
     if (!ethers.isAddress(identifier)) {
       console.error(`Invalid address: ${identifier}`);
@@ -61,7 +66,6 @@ export function resolveAddress(identifier: string, book: Addressbook): string | 
     return identifier;
   }
 
-  // Role lookup
   const entry = book[identifier];
   if (!entry) {
     console.error(`Role '${identifier}' not found in addressbook`);
@@ -76,7 +80,7 @@ export function resolveAddress(identifier: string, book: Addressbook): string | 
 export function resolveWallet(
   identifier: string,
   book: Addressbook,
-  provider: ethers.Provider
+  provider: ethers.Provider,
 ): ethers.Wallet | null {
   const entry = book[identifier];
   if (!entry) {

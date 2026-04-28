@@ -9,8 +9,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveWallet } from "../../fund-manager/addressbook";
+import type { Addressbook } from "../../addressbook";
+import { resolveWallet } from "../../addressbook";
 import { loadNftContractAddress } from "../../config/web3-config";
 import { NFT_WRITE_ABI } from "../../config/nft-abi";
 

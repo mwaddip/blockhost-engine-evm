@@ -11,8 +11,9 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook, FundManagerConfig, RevenueShareConfig } from "./types";
-import { resolveAddress } from "./addressbook";
+import type { FundManagerConfig, RevenueShareConfig } from "./types";
+import type { Addressbook } from "../addressbook";
+import { resolveAddress } from "../addressbook";
 import { getTokenBalance, getAllTokenBalances } from "./token-utils";
 import { executeSend } from "../bw/commands/send";
 

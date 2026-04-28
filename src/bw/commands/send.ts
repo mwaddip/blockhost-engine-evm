@@ -6,8 +6,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveAddress, resolveWallet } from "../../fund-manager/addressbook";
+import type { Addressbook } from "../../addressbook";
+import { resolveAddress, resolveWallet } from "../../addressbook";
 import { transferToken, ERC20_ABI } from "../../fund-manager/token-utils";
 import { resolveToken } from "../cli-utils";
 

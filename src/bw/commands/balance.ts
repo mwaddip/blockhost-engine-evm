@@ -5,8 +5,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook } from "../../fund-manager/types";
-import { resolveAddress } from "../../fund-manager/addressbook";
+import type { Addressbook } from "../../addressbook";
+import { resolveAddress } from "../../addressbook";
 import {
   getAllTokenBalances,
   getTokenBalance,

@@ -116,11 +116,17 @@ def wizard_evm():
         if chain_id == "custom":
             chain_id = request.form.get("custom_chain_id", "").strip()
 
+        # Write the deployer key to disk immediately. Never put it in the Flask
+        # session — default sessions are signed cookies (not encrypted), so the
+        # browser would carry the private key on every wizard request.
+        deployer_key = request.form.get("deployer_key", "").strip()
+        if deployer_key:
+            _write_deployer_key(deployer_key)
+
         session["blockchain"] = {
             "chain_id": chain_id,
             "rpc_url": request.form.get("rpc_url", "").strip(),
             "wallet_mode": request.form.get("wallet_mode", "generate"),
-            "deployer_key": request.form.get("deployer_key", "").strip(),
             "deployer_address": request.form.get("deployer_address", "").strip(),
             "contract_mode": request.form.get("contract_mode", "deploy"),
             "nft_contract": request.form.get("nft_contract", "").strip(),
@@ -383,146 +389,68 @@ def api_set_contracts():
 
 
 def _run_deploy(job_id: str, deployer_key: str, rpc_url: str, chain_id: str):
-    """Deploy NFT and subscription contracts in background."""
+    """Deploy NFT and subscription contracts in background.
+
+    Always shells out to /usr/bin/blockhost-deploy-contracts. The wizard's
+    Python re-implementations of the deploy path were deleted: deploy logic
+    only exists in scripts/deploy-contracts.sh now.
+    """
     job = _deploy_jobs[job_id]
 
     try:
-        # Write temporary deployer key for the deploy script
-        tmp_key = Path("/tmp/blockhost-deploy-key")
-        key_hex = deployer_key.replace("0x", "")
-        tmp_key.write_text(key_hex)
-        tmp_key.chmod(0o600)
+        deploy_script = Path("/usr/bin/blockhost-deploy-contracts")
+        if not deploy_script.exists():
+            job["status"] = "failed"
+            job["message"] = (
+                f"{deploy_script} not found — the engine .deb is not installed."
+            )
+            return
 
+        # Persist the key + RPC config the deploy script reads from disk.
         try:
-            # Try blockhost-deploy-contracts CLI first
-            deploy_script = Path("/usr/bin/blockhost-deploy-contracts")
-            if deploy_script.exists():
-                job["message"] = "Deploying contracts via blockhost-deploy-contracts..."
+            _write_deployer_key(deployer_key)
+        except ValueError as e:
+            job["status"] = "failed"
+            job["message"] = str(e)
+            return
+        _write_minimal_web3_defaults(rpc_url, chain_id)
 
-                # The script reads from /etc/blockhost/deployer.key and web3-defaults.yaml,
-                # but we haven't written those yet. Write a minimal web3-defaults.yaml
-                # for the deploy script.
-                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-                tmp_deployer = CONFIG_DIR / "deployer.key"
-                tmp_deployer.write_text(key_hex)
-                tmp_deployer.chmod(0o600)
+        job["message"] = "Deploying contracts via blockhost-deploy-contracts..."
+        result = subprocess.run(
+            [str(deploy_script)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
 
-                _write_minimal_web3_defaults(rpc_url, chain_id)
+        if result.returncode != 0:
+            job["status"] = "failed"
+            job["message"] = (
+                f"blockhost-deploy-contracts failed: {result.stderr.strip() or result.stdout.strip()}"
+            )
+            return
 
-                result = subprocess.run(
-                    [str(deploy_script)],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
-
-                if result.returncode == 0:
-                    addresses = [
-                        l.strip()
-                        for l in result.stdout.strip().split("\n")
-                        if l.strip().startswith("0x")
-                    ]
-                    if len(addresses) >= 2:
-                        job["nft_contract"] = addresses[0]
-                        job["subscription_contract"] = addresses[1]
-                        job["status"] = "completed"
-                        job["message"] = "Contracts deployed successfully"
-                        return
-                    elif len(addresses) == 1:
-                        job["nft_contract"] = addresses[0]
-                        job["status"] = "completed"
-                        job["message"] = "NFT contract deployed"
-                        return
-
-                # Fall through to cast fallback
-                job["message"] = "Deploy script failed, trying cast fallback..."
-
-            # Fallback: deploy with cast send --create
-            _deploy_with_cast(job, key_hex, rpc_url)
-
-        finally:
-            tmp_key.unlink(missing_ok=True)
+        addresses = [
+            l.strip()
+            for l in result.stdout.strip().split("\n")
+            if l.strip().startswith("0x")
+        ]
+        if len(addresses) >= 2:
+            job["nft_contract"] = addresses[0]
+            job["subscription_contract"] = addresses[1]
+            job["status"] = "completed"
+            job["message"] = "Contracts deployed successfully"
+        elif len(addresses) == 1:
+            job["nft_contract"] = addresses[0]
+            job["status"] = "completed"
+            job["message"] = "NFT contract deployed"
+        else:
+            job["status"] = "failed"
+            job["message"] = "Deploy script returned no contract addresses"
 
     except Exception as e:
         job["status"] = "failed"
         job["message"] = str(e)
-
-
-def _deploy_with_cast(job: dict, deployer_key_hex: str, rpc_url: str):
-    """Deploy contracts using cast send --create with pre-compiled artifacts."""
-    # Look for compiled contract artifacts
-    nft_artifact = CONTRACTS_DIR / "AccessCredentialNFT.json"
-    sub_artifact = CONTRACTS_DIR / "BlockhostSubscriptions.json"
-
-    if not sub_artifact.exists():
-        job["status"] = "failed"
-        job["message"] = (
-            "Compiled contract artifacts not found. "
-            "Install blockhost-engine-evm package or compile contracts with forge."
-        )
-        return
-
-    # Deploy NFT contract first
-    job["message"] = "Deploying NFT contract..."
-    nft_address = None
-    if nft_artifact.exists():
-        nft_address = _cast_deploy(nft_artifact, deployer_key_hex, rpc_url)
-        if not nft_address:
-            job["status"] = "failed"
-            job["message"] = "NFT contract deployment failed"
-            return
-        job["nft_contract"] = nft_address
-
-    # Deploy subscription contract
-    job["message"] = "Deploying subscription contract..."
-    sub_address = _cast_deploy(sub_artifact, deployer_key_hex, rpc_url)
-    if not sub_address:
-        job["status"] = "failed"
-        job["message"] = "Subscription contract deployment failed"
-        return
-
-    job["subscription_contract"] = sub_address
-    job["status"] = "completed"
-    job["message"] = "Contracts deployed successfully"
-
-
-def _cast_deploy(
-    artifact_path: Path, deployer_key_hex: str, rpc_url: str
-) -> Optional[str]:
-    """Deploy a single contract using cast send --create. Returns address or None."""
-    try:
-        artifact = json.loads(artifact_path.read_text())
-        bytecode = artifact.get("bytecode", {}).get("object", "")
-        if not bytecode:
-            bytecode = artifact.get("bytecode", "")
-        if isinstance(bytecode, dict):
-            bytecode = bytecode.get("object", "")
-        if not bytecode.startswith("0x"):
-            bytecode = f"0x{bytecode}"
-
-        result = subprocess.run(
-            [
-                "cast",
-                "send",
-                "--private-key",
-                f"0x{deployer_key_hex}",
-                "--rpc-url",
-                rpc_url,
-                "--create",
-                bytecode,
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-        if result.returncode == 0:
-            tx_data = json.loads(result.stdout)
-            return tx_data.get("contractAddress")
-    except Exception:
-        pass
-    return None
 
 
 def _write_minimal_web3_defaults(rpc_url: str, chain_id: str):
@@ -738,47 +666,42 @@ def _set_blockhost_ownership(path, mode=0o640):
             pass
 
 
+def _write_deployer_key(deployer_key: str) -> None:
+    """Write the deployer private key to /etc/blockhost/deployer.key.
+
+    Idempotent: skips write if file exists with matching content. Raises
+    ValueError on invalid format.
+    """
+    key_hex = deployer_key.replace("0x", "")
+    if len(key_hex) != 64:
+        raise ValueError(f"Invalid deployer key length ({len(key_hex)}, expected 64)")
+
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    key_file = CONFIG_DIR / "deployer.key"
+    if key_file.exists() and key_file.read_text().strip() == key_hex:
+        return
+    key_file.write_text(key_hex)
+    _set_blockhost_ownership(key_file, 0o640)
+
+
+def _read_deployer_key() -> str:
+    """Read the deployer key from disk. Returns empty string if missing."""
+    key_file = CONFIG_DIR / "deployer.key"
+    if not key_file.exists():
+        return ""
+    return key_file.read_text().strip()
+
+
 def _write_yaml(path: Path, data: dict):
-    """Write data to YAML file."""
+    """Write data to YAML file. Prefers installer's writer, falls back to PyYAML."""
     try:
         from installer.web.utils import write_yaml
 
         write_yaml(path, data)
     except ImportError:
-        try:
-            import yaml
+        import yaml
 
-            path.write_text(yaml.safe_dump(data, default_flow_style=False))
-        except ImportError:
-            # Minimal fallback
-            lines = []
-            _dict_to_yaml(data, lines, 0)
-            path.write_text("\n".join(lines) + "\n")
-
-
-def _dict_to_yaml(data: dict, lines: list, indent: int):
-    """Simple dict to YAML converter."""
-    prefix = "  " * indent
-    for key, value in data.items():
-        if isinstance(value, dict):
-            lines.append(f"{prefix}{key}:")
-            _dict_to_yaml(value, lines, indent + 1)
-        elif isinstance(value, list):
-            lines.append(f"{prefix}{key}:")
-            for item in value:
-                if isinstance(item, dict):
-                    lines.append(f"{prefix}  -")
-                    _dict_to_yaml(item, lines, indent + 2)
-                else:
-                    lines.append(f"{prefix}  - {item}")
-        elif value is None:
-            lines.append(f"{prefix}{key}: null")
-        elif isinstance(value, bool):
-            lines.append(f"{prefix}{key}: {str(value).lower()}")
-        elif isinstance(value, (int, float)):
-            lines.append(f"{prefix}{key}: {value}")
-        else:
-            lines.append(f'{prefix}{key}: "{value}"')
+        path.write_text(yaml.safe_dump(data, default_flow_style=False))
 
 
 def _discover_bridge() -> str:
@@ -795,23 +718,13 @@ def _discover_bridge() -> str:
 
 
 def _derive_address_from_key(private_key: str) -> Optional[str]:
-    """Derive Ethereum address from private key using available tools."""
+    """Derive Ethereum address from private key using bhcrypt.
+
+    bhcrypt is engine-owned and ships in the same .deb as the wizard, so the
+    binary is always present. The cast/forge fork was removed — there is one
+    EIP-55 implementation in the project (bhcrypt key-to-address).
+    """
     key_hex = private_key.replace("0x", "")
-
-    # Try cast first
-    try:
-        result = subprocess.run(
-            ["cast", "wallet", "address", "--private-key", f"0x{key_hex}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # Try bhcrypt
     try:
         result = subprocess.run(
             ["bhcrypt", "key-to-address", "--key", f"0x{key_hex}"],
@@ -823,7 +736,6 @@ def _derive_address_from_key(private_key: str) -> Optional[str]:
             return result.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
-
     return None
 
 
@@ -833,37 +745,20 @@ def _derive_address_from_key(private_key: str) -> Optional[str]:
 
 
 def finalize_wallet(config: dict) -> tuple[bool, Optional[str]]:
-    """Write deployer private key to /etc/blockhost/deployer.key.
+    """Verify the deployer key file exists and report the deployer address.
 
-    Idempotent: skips write if file exists with matching content.
+    The key was written to disk by the wizard POST handler (or by the deploy
+    flow). This step is now a verification + address-derivation step — it does
+    not handle the key material directly.
     """
     try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        blockchain = config.get("blockchain", {})
-        deployer_key = blockchain.get("deployer_key", "")
-
-        if not deployer_key:
-            return False, "No deployer key in configuration"
-
-        # Normalize: strip 0x prefix for storage
-        key_hex = deployer_key.replace("0x", "")
+        key_hex = _read_deployer_key()
+        if not key_hex:
+            return False, "Deployer key file missing — wallet step did not run"
         if len(key_hex) != 64:
             return False, f"Invalid deployer key length ({len(key_hex)}, expected 64)"
 
-        key_file = CONFIG_DIR / "deployer.key"
-
-        # Idempotent: skip if same key already written
-        if key_file.exists() and key_file.read_text().strip() == key_hex:
-            deployer_address = blockchain.get("deployer_address", "")
-            if not deployer_address:
-                deployer_address = _derive_address_from_key(key_hex) or ""
-            config["_step_result_wallet"] = {"address": deployer_address}
-            return True, None
-
-        key_file.write_text(key_hex)
-        _set_blockhost_ownership(key_file, 0o640)
-
-        # Derive address for step result
+        blockchain = config.get("blockchain", {})
         deployer_address = blockchain.get("deployer_address", "")
         if not deployer_address:
             deployer_address = _derive_address_from_key(key_hex) or ""
@@ -917,71 +812,48 @@ def finalize_contracts(config: dict) -> tuple[bool, Optional[str]]:
             }
             return True, None
 
-        deployer_key = blockchain.get("deployer_key", "").replace("0x", "")
-        key_file = CONFIG_DIR / "deployer.key"
-        if not key_file.exists():
-            if deployer_key:
-                key_file.write_text(deployer_key)
-                _set_blockhost_ownership(key_file, 0o640)
-            else:
-                return False, "Deployer key not available"
+        if not _read_deployer_key():
+            return False, "Deployer key not available on disk"
 
         chain_id = blockchain.get("chain_id", "")
 
-        # Try blockhost-deploy-contracts CLI
+        # Single deploy path: shell out to blockhost-deploy-contracts.
         deploy_script = Path("/usr/bin/blockhost-deploy-contracts")
-        if deploy_script.exists():
-            # Ensure minimal web3-defaults.yaml exists for the deploy script
-            _write_minimal_web3_defaults(rpc_url, chain_id)
-
-            result = subprocess.run(
-                [str(deploy_script)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-
-            if result.returncode == 0:
-                addresses = [
-                    l.strip()
-                    for l in result.stdout.strip().split("\n")
-                    if l.strip().startswith("0x")
-                ]
-                if len(addresses) >= 2:
-                    blockchain["nft_contract"] = addresses[0]
-                    blockchain["subscription_contract"] = addresses[1]
-                    config["blockchain"] = blockchain
-                    config["_step_result_contracts"] = {
-                        "nft_contract": addresses[0],
-                        "subscription_contract": addresses[1],
-                    }
-                    return True, None
-
-        # Fallback: deploy with cast
-        nft_artifact = CONTRACTS_DIR / "AccessCredentialNFT.json"
-        sub_artifact = CONTRACTS_DIR / "BlockhostSubscriptions.json"
-
-        if not sub_artifact.exists():
+        if not deploy_script.exists():
             return False, (
-                "Contract artifacts not found at "
-                f"{CONTRACTS_DIR}. Install blockhost-engine-evm package."
+                f"{deploy_script} not found — the engine .deb is not installed."
             )
 
-        if nft_artifact.exists():
-            nft_addr = _cast_deploy(nft_artifact, deployer_key, rpc_url)
-            if not nft_addr:
-                return False, "NFT contract deployment failed"
-            blockchain["nft_contract"] = nft_addr
+        # The script reads RPC + chain from web3-defaults.yaml. Make sure it exists.
+        _write_minimal_web3_defaults(rpc_url, chain_id)
 
-        sub_addr = _cast_deploy(sub_artifact, deployer_key, rpc_url)
-        if not sub_addr:
-            return False, "Subscription contract deployment failed"
-        blockchain["subscription_contract"] = sub_addr
+        result = subprocess.run(
+            [str(deploy_script)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            return False, (
+                f"blockhost-deploy-contracts failed: {result.stderr.strip() or result.stdout.strip()}"
+            )
 
+        addresses = [
+            l.strip()
+            for l in result.stdout.strip().split("\n")
+            if l.strip().startswith("0x")
+        ]
+        if len(addresses) < 2:
+            return False, (
+                f"blockhost-deploy-contracts returned {len(addresses)} addresses, expected 2"
+            )
+
+        blockchain["nft_contract"] = addresses[0]
+        blockchain["subscription_contract"] = addresses[1]
         config["blockchain"] = blockchain
         config["_step_result_contracts"] = {
-            "nft_contract": blockchain.get("nft_contract", ""),
-            "subscription_contract": sub_addr,
+            "nft_contract": addresses[0],
+            "subscription_contract": addresses[1],
         }
         return True, None
     except subprocess.TimeoutExpired:
@@ -1062,11 +934,12 @@ def finalize_chain_config(config: dict) -> tuple[bool, Optional[str]]:
         sub_contract = blockchain.get("subscription_contract", "")
         admin_wallet = config.get("admin_wallet", "")
 
-        # Derive deployer address
-        deployer_key = blockchain.get("deployer_key", "").replace("0x", "")
+        # Derive deployer address (key only loaded from disk if address absent)
         deployer_address = blockchain.get("deployer_address", "")
-        if not deployer_address and deployer_key:
-            deployer_address = _derive_address_from_key(deployer_key) or ""
+        if not deployer_address:
+            key_hex = _read_deployer_key()
+            if key_hex:
+                deployer_address = _derive_address_from_key(key_hex) or ""
 
         # Read server public key
         server_pubkey = ""

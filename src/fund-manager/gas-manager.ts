@@ -6,7 +6,8 @@
  */
 
 import { ethers } from "ethers";
-import type { Addressbook, FundManagerConfig } from "./types";
+import type { FundManagerConfig } from "./types";
+import type { Addressbook } from "../addressbook";
 import { getChainConfig, UNISWAP_V2_PAIR_ABI } from "./chain-pools";
 import { getTokenBalance } from "./token-utils";
 import { executeSwap } from "../bw/commands/swap";
@@ -38,6 +39,12 @@ async function getEthPriceUsd(
 
   const usdcFloat = parseFloat(ethers.formatUnits(usdcReserve, usdcDecimals));
   const wethFloat = parseFloat(ethers.formatEther(wethReserve));
+  if (!(wethFloat > 0) || !(usdcFloat > 0)) {
+    throw new Error(
+      `[GAS] Drained or empty USDC/WETH pair at ${pairAddress} ` +
+      `(usdc=${usdcFloat}, weth=${wethFloat}); cannot price ETH`,
+    );
+  }
   return usdcFloat / wethFloat;
 }
 
