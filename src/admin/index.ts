@@ -7,7 +7,7 @@
 import { execFileSync } from "child_process";
 import { ethers } from "ethers";
 import type { AdminCommand, AdminConfig, CommandResult, CommandDatabase } from "./types";
-import { loadCommandDatabase, checkDestination, getServerPrivateKeyPath, loadServerPublicKey } from "./config";
+import { loadCommandDatabase, getServerPrivateKeyPath } from "./config";
 import { isNonceUsed, markNonceUsed, pruneOldNonces, loadNonces, flushNonceSaves } from "./nonces";
 import { executeKnock, closeAllKnocks } from "./handlers/knock";
 
@@ -149,13 +149,6 @@ export async function processAdminCommands(
   fromBlock: number,
   toBlock: number
 ): Promise<void> {
-  // Load server public key for destination check
-  const serverPublicKey = loadServerPublicKey();
-  if (!serverPublicKey && adminConfig.destination_mode === 'server') {
-    console.warn(`[ADMIN] Server public key not configured, skipping admin commands`);
-    return;
-  }
-
   // Load command database
   const commandDb = loadCommandDatabase();
   if (!commandDb) {
@@ -188,7 +181,7 @@ export async function processAdminCommands(
       continue;
     }
     for (const tx of block.prefetchedTransactions) {
-      await processTransaction(tx, adminConfig, serverPublicKey || '', commandDb);
+      await processTransaction(tx, adminConfig, commandDb);
     }
   }
 }
@@ -210,7 +203,6 @@ function warnMissingPrefetchedTransactionsOnce(): void {
 async function processTransaction(
   tx: ethers.TransactionResponse,
   adminConfig: AdminConfig,
-  serverPublicKey: string,
   commandDb: CommandDatabase
 ): Promise<void> {
   // Check sender is admin wallet
@@ -221,11 +213,6 @@ async function processTransaction(
   // Check transaction has data
   if (!tx.data || tx.data === '0x' || tx.data.length < 10) {
     return; // No data payload
-  }
-
-  // Check destination matches configured mode
-  if (!checkDestination(tx.to, adminConfig, serverPublicKey)) {
-    return; // Destination doesn't match
   }
 
   // Attempt ECIES decryption

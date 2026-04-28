@@ -58,7 +58,7 @@ components:
       decrypted, validated (timestamp, nonce anti-replay), and dispatched.
 
     config_files:
-      - /etc/blockhost/blockhost.yaml (admin.wallet_address, admin.destination_mode)
+      - /etc/blockhost/blockhost.yaml (admin.wallet_address)
       - /etc/blockhost/admin-commands.json (secret command name → action mapping)
 
     actions:

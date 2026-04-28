@@ -1018,10 +1018,6 @@ def finalize_chain_config(config: dict) -> tuple[bool, Optional[str]]:
             "credential_nft_id": 0,
             "max_command_age": 300,
         }
-        if admin_commands.get("enabled"):
-            bh_config["admin"]["destination_mode"] = admin_commands.get(
-                "destination_mode", "self"
-            )
 
         bh_path = CONFIG_DIR / "blockhost.yaml"
         _write_yaml(bh_path, bh_config)

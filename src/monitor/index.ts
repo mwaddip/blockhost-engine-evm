@@ -190,7 +190,6 @@ async function main() {
   if (adminConfig) {
     console.log(`Admin commands: ENABLED`);
     console.log(`Admin wallet: ${adminConfig.wallet_address}`);
-    console.log(`Destination mode: ${adminConfig.destination_mode || 'any'}`);
     initAdminCommands();
   } else {
     console.log(`Admin commands: DISABLED (not configured)`);

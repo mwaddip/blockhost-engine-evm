@@ -4,8 +4,6 @@
 
 import type { ChildProcess } from "child_process";
 
-export type DestinationMode = 'any' | 'self' | 'server' | 'null';
-
 /**
  * Admin command payload structure (encrypted in tx.data)
  */
@@ -31,8 +29,6 @@ export interface KnockParams {
 export interface AdminConfig {
   wallet_address: string;           // Admin wallet address (required)
   max_command_age?: number;         // Reject commands older than N seconds (default: 300)
-  destination_mode?: DestinationMode;  // How to filter tx.to (default: 'any')
-  destination_address?: string;     // Custom address for 'null' mode
 }
 
 /**
