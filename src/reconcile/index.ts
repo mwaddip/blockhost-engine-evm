@@ -78,18 +78,24 @@ function loadVmsDatabase(): VmsDatabase | null {
 }
 
 /**
- * Save the VMs database
+ * Persist field updates to a VM record via blockhost-vmdb update-fields.
+ * Routes through common's lockfile so writes serialise with provisioner-owned
+ * register_vm / mark_destroyed (per facts/COMMON_INTERFACE.md §2 + §6a).
  */
-function saveVmsDatabase(db: VmsDatabase): boolean {
-  try {
-    const tmpFile = `${VMS_JSON_PATH}.tmp`;
-    fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2));
-    fs.renameSync(tmpFile, VMS_JSON_PATH);
+function updateVmFields(vmName: string, fields: Record<string, unknown>): boolean {
+  const result = spawnSync(
+    "blockhost-vmdb",
+    ["update-fields", vmName, "--fields", JSON.stringify(fields)],
+    { encoding: "utf8", timeout: 10_000 },
+  );
+  if (result.status === 0) {
     return true;
-  } catch (err) {
-    console.error(`[RECONCILE] Error saving vms.json: ${err}`);
-    return false;
   }
+  const errMsg = (result.stderr || result.stdout || "").trim();
+  console.error(
+    `[RECONCILE] update-fields failed for ${vmName}: ${errMsg || `exit ${result.status}`}`,
+  );
+  return false;
 }
 
 /**
@@ -146,14 +152,14 @@ async function reconcileOwnership(
       // Ownership transfer detected
       console.log(`[RECONCILE] NFT #${vm.nft_token_id} transferred: ${localOwner} → ${onChainOwner}`);
 
-      vm.owner_wallet = onChainOwner;
-      vm.gecos_synced = false;
-      saveVmsDatabase(localDb);
+      if (!updateVmFields(vm.vm_name, { owner_wallet: onChainOwner, gecos_synced: false })) {
+        continue;
+      }
 
       if (updateGecos(vm.vm_name, onChainOwner, vm.nft_token_id)) {
-        vm.gecos_synced = true;
-        saveVmsDatabase(localDb);
-        console.log(`[RECONCILE] GECOS updated for ${vmName}`);
+        if (updateVmFields(vm.vm_name, { gecos_synced: true })) {
+          console.log(`[RECONCILE] GECOS updated for ${vmName}`);
+        }
       } else {
         console.warn(`[RECONCILE] GECOS update failed for ${vmName}, will retry next cycle`);
       }
@@ -161,9 +167,9 @@ async function reconcileOwnership(
       // Previous GECOS update failed — retry
       console.log(`[RECONCILE] Retrying GECOS update for ${vmName}`);
       if (updateGecos(vm.vm_name, vm.owner_wallet, vm.nft_token_id)) {
-        vm.gecos_synced = true;
-        saveVmsDatabase(localDb);
-        console.log(`[RECONCILE] GECOS retry succeeded for ${vmName}`);
+        if (updateVmFields(vm.vm_name, { gecos_synced: true })) {
+          console.log(`[RECONCILE] GECOS retry succeeded for ${vmName}`);
+        }
       } else {
         console.warn(`[RECONCILE] GECOS retry failed for ${vmName}, will try again next cycle`);
       }

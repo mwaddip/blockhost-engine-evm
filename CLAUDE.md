@@ -163,7 +163,11 @@ VM-record creation and destruction in `vms.json` is the **provisioner's** respon
 - `vm-create` calls `blockhost.vm_db.register_vm` itself before printing its `BLOCKHOST_RESULT:` line. The engine's `handleSubscriptionCreated` does NOT call `register_vm`.
 - `vm-destroy` calls `mark_destroyed` itself after the VM is gone. The engine's `handleSubscriptionCancelled` does NOT call `mark_destroyed`.
 
-Engines only call NFT-related vm_db methods: `set_nft_minted` (via the `blockhost-vmdb mark-nft-minted` CLI) and `extend_expiry` (via `blockhost-vmdb extend-expiry`).
+Engines only call a narrow set of vm_db methods, all routed through the `blockhost-vmdb` CLI so writes serialise with the provisioner's mutators via common's lockfile:
+
+- `set_nft_minted` — `blockhost-vmdb mark-nft-minted`
+- `extend_expiry` — `blockhost-vmdb extend-expiry`
+- `update_fields` — `blockhost-vmdb update-fields` (used by the reconciler to write `owner_wallet` and `gecos_synced` on ownership transfer; reserved keys managed by other mutators are rejected with exit 2)
 
 ## Provisioner stdout parsing
 
@@ -181,10 +185,9 @@ Detects discrepancies between on-chain NFT state and local `vms.json`. Fixes par
 
 For every active/suspended VM with a minted NFT, compares `ownerOf(tokenId)` on-chain with the locally stored `owner_wallet`. When a transfer is detected:
 
-1. Updates `owner_wallet` in `vms.json` to the new on-chain owner
-2. Sets `gecos_synced = false` on the VM entry
-3. Calls the provisioner's `update-gecos` command to update the VM's GECOS field (`wallet=ADDRESS,nft=TOKEN_ID`)
-4. On success, sets `gecos_synced = true`
+1. Writes `owner_wallet` (new on-chain owner) and `gecos_synced = false` via `blockhost-vmdb update-fields` (atomic with the provisioner's mutators)
+2. Calls the provisioner's `update-gecos` command to update the VM's GECOS field (`wallet=ADDRESS,nft=TOKEN_ID`)
+3. On success, writes `gecos_synced = true` via `update-fields`
 
 If `update-gecos` fails (VM stopped, guest agent unresponsive), the `gecos_synced = false` flag persists. On the next reconciliation cycle, the ownership matches (local was already updated), but `gecos_synced === false` triggers a retry.
 
