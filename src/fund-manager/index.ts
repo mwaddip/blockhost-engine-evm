@@ -128,16 +128,25 @@ export async function runFundCycle(provider: ethers.Provider): Promise<void> {
     // Step 5: Remainder to admin (hot → admin)
     await sendRemainderToAdmin(book, provider, contract);
 
-    // Dual-write block height (preferred per facts §6) + ms timestamp (legacy).
-    const currentBlock = await provider.getBlockNumber();
-    updateState({
-      last_fund_cycle_block: currentBlock,
-      last_fund_cycle: Date.now(),
-    });
     console.log("[FUND] Fund cycle complete");
   } catch (err) {
     console.error(`[FUND] Error during fund cycle: ${err}`);
   } finally {
+    // Record the attempt regardless of success. Without this, a persistent
+    // failure (broken addressbook, RPC down, root agent missing an action)
+    // would log-flood: shouldRunFundCycle would stay true after every failure,
+    // so the cycle would re-run on every monitor poll (~5s) instead of waiting
+    // out the configured interval. Mirrors runGasCheck's finally block.
+    // Dual-write block height (preferred per facts §6) + ms timestamp (legacy).
+    try {
+      const currentBlock = await provider.getBlockNumber();
+      updateState({
+        last_fund_cycle_block: currentBlock,
+        last_fund_cycle: Date.now(),
+      });
+    } catch {
+      updateState({ last_fund_cycle: Date.now() });
+    }
     fundCycleInProgress = false;
   }
 }
