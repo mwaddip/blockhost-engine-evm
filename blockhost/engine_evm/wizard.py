@@ -454,20 +454,26 @@ def _run_deploy(job_id: str, deployer_key: str, rpc_url: str, chain_id: str):
 
 
 def _write_minimal_web3_defaults(rpc_url: str, chain_id: str):
-    """Write a minimal web3-defaults.yaml for deploy script."""
-    from installer.web.utils import write_yaml
+    """Merge chain_id + rpc_url into web3-defaults.yaml's blockchain section.
+
+    Common ships an empty `blockchain: {}` skeleton as a conffile, so the file
+    almost always exists at install time. Earlier code skipped on existence and
+    the deploy script then read an empty config. We merge instead, preserving
+    any other top-level keys (e.g. `deployer:`, `auth:`).
+    """
+    import yaml
 
     web3_path = CONFIG_DIR / "web3-defaults.yaml"
-    if not web3_path.exists():
-        write_yaml(
-            web3_path,
-            {
-                "blockchain": {
-                    "chain_id": int(chain_id) if chain_id.isdigit() else chain_id,
-                    "rpc_url": rpc_url,
-                }
-            },
-        )
+    data: dict = {}
+    if web3_path.exists():
+        try:
+            data = yaml.safe_load(web3_path.read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            data = {}
+    blockchain = data.setdefault("blockchain", {})
+    blockchain["rpc_url"] = rpc_url
+    blockchain["chain_id"] = int(chain_id) if chain_id.isdigit() else chain_id
+    _write_yaml(web3_path, data)
 
 
 # ---------------------------------------------------------------------------
