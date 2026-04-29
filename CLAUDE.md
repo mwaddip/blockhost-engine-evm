@@ -167,15 +167,33 @@ Engines only call a narrow set of vm_db methods, all routed through the `blockho
 
 - `set_nft_minted` — `blockhost-vmdb mark-nft-minted`
 - `extend_expiry` — `blockhost-vmdb extend-expiry`
-- `update_fields` — `blockhost-vmdb update-fields` (used by the reconciler to write `owner_wallet` and `gecos_synced` on ownership transfer; reserved keys managed by other mutators are rejected with exit 2)
+- `update_fields` — `blockhost-vmdb update-fields` (used by the reconciler to write `owner_wallet`, `gecos_synced`, and `network_config_synced`; reserved keys managed by other mutators are rejected with exit 2)
 
 ## Provisioner stdout parsing
 
 Provisioner CLIs that return structured data (currently `blockhost-vm-create` and `blockhost-mint-nft`) emit a single line prefixed with the literal sentinel `BLOCKHOST_RESULT: ` followed by the canonical payload (JSON for create, integer for mint). Other stdout lines are informational and ignored. Engines parse by sentinel prefix — never by "last line starting with `{`" or similar heuristics. See `facts/PROVISIONER_INTERFACE.md §2` and `facts/ENGINE_INTERFACE.md §1`.
 
+## Network-layer Integration
+
+Network-shaped concerns are dispatched through `blockhost-network-hook` (shipped by `blockhost-common`). The engine is **mode-agnostic** — it never reads `/etc/blockhost/network-mode`, never branches on `onion`/`broker`/`manual`, never imports `blockhost.network_hook`. Full plugin contract: `facts/NETWORK_INTERFACE.md`. Engine usage: `facts/ENGINE_INTERFACE.md §13`.
+
+### Create flow
+
+`handleSubscriptionCreated` calls the dispatcher twice:
+
+1. `blockhost-network-hook public-address <vm>` — resolves the subscriber-facing host. Non-zero exit or empty stdout aborts the handler. **No fallback** — bad data baked into an NFT is worse than a re-driveable failure.
+2. `blockhost-network-hook push-vm-config <vm>` (after mint) — pushes mode-specific config inside the VM. Idempotent and best-effort. Outcome is persisted to `vm-db.network_config_synced` (true on success, false on failure) so the reconciler can retry.
+
+### Cancel flow
+
+`handleSubscriptionCancelled` calls the dispatcher once, **before** vm-destroy:
+
+1. `blockhost-network-hook cleanup <vm>` — releases per-VM resources (host- and guest-side) while the VM is still running.
+2. Provisioner's `vm-destroy` follows.
+
 ## Reconciler (`src/reconcile/`)
 
-Runs every 5 minutes as part of the monitor polling loop. Performs two categories of checks. Defers when `/run/blockhost/provisioning.lock` is present (the provisioner is in the middle of a `vm-create`); the lock is provisioner-owned per `facts/PROVISIONER_INTERFACE.md §6a` — engine only checks existence, never reads or removes it.
+Runs every 5 minutes as part of the monitor polling loop. Performs three categories of checks. Defers when `/run/blockhost/provisioning.lock` is present (the provisioner is in the middle of a `vm-create`); the lock is provisioner-owned per `facts/PROVISIONER_INTERFACE.md §6a` — engine only checks existence, never reads or removes it.
 
 ### NFT Minting Reconciliation
 
@@ -192,6 +210,10 @@ For every active/suspended VM with a minted NFT, compares `ownerOf(tokenId)` on-
 If `update-gecos` fails (VM stopped, guest agent unresponsive), the `gecos_synced = false` flag persists. On the next reconciliation cycle, the ownership matches (local was already updated), but `gecos_synced === false` triggers a retry.
 
 This is the sole mechanism by which VMs learn about NFT ownership changes post-creation. The PAM module on VMs authenticates against the GECOS field, not the blockchain.
+
+### Network Config Retry
+
+For every active VM where `network_config_synced !== true`, the reconciler invokes `blockhost-network-hook push-vm-config <vm>`. On success, writes `network_config_synced = true` via `update-fields`. The plugin command is idempotent — safe to call every cycle. This catches VMs whose initial `push-vm-config` failed during create (e.g. guest agent not ready yet).
 
 ### Provisioner Command
 

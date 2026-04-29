@@ -24,6 +24,7 @@ interface VmEntry {
   nft_minted?: boolean;
   status: string;
   gecos_synced?: boolean;
+  network_config_synced?: boolean;
 }
 
 interface VmsDatabase {
@@ -123,6 +124,33 @@ function updateGecos(vmName: string, walletAddress: string, nftTokenId: number):
 }
 
 /**
+ * Retry blockhost-network-hook push-vm-config for any active VM whose previous
+ * push didn't confirm success. The plugin command is idempotent — safe to call
+ * every cycle. See facts/ENGINE_INTERFACE.md §13 (Reconciler).
+ */
+function reconcileNetworkConfig(localDb: VmsDatabase): void {
+  for (const [vmName, vm] of Object.entries(localDb.vms)) {
+    if (vm.status === "destroyed") continue;
+    if (vm.network_config_synced === true) continue;
+
+    const result = spawnSync("blockhost-network-hook", ["push-vm-config", vm.vm_name], {
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    if (result.status === 0) {
+      if (updateVmFields(vm.vm_name, { network_config_synced: true })) {
+        console.log(`[RECONCILE] push-vm-config succeeded for ${vmName}`);
+      }
+    } else {
+      const errMsg = (result.stderr || result.stdout || "").trim();
+      console.warn(
+        `[RECONCILE] push-vm-config still failing for ${vmName}: ${errMsg || `exit ${result.status}`}`,
+      );
+    }
+  }
+}
+
+/**
  * Reconcile NFT ownership: detect transfers and update VM GECOS fields.
  * For each active/suspended VM with a minted NFT, compare on-chain ownerOf()
  * with the locally stored owner_wallet. On mismatch, update local state and
@@ -214,6 +242,9 @@ export async function runReconciliation(provider: ethers.Provider): Promise<void
 
     // Reconcile NFT ownership transfers and retry failed GECOS updates
     await reconcileOwnership(nftContract, localDb);
+
+    // Retry push-vm-config for any VM where the prior push didn't succeed
+    reconcileNetworkConfig(localDb);
 
     // Mark reconciliation as done only on success (failed runs retry next poll)
     lastReconcileTime = Date.now();

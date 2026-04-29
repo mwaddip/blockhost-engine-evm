@@ -6,7 +6,6 @@
 import { ethers } from "ethers";
 import { spawn, execFileSync, spawnSync } from "child_process";
 import { getCommand } from "../provisioner";
-import { getNetworkMode } from "../config/network-mode";
 
 // Paths on the server
 const WORKING_DIR = "/var/lib/blockhost";
@@ -219,33 +218,51 @@ function markNftMinted(nftTokenId: number, vmName: string): boolean {
 }
 
 /**
- * Resolve the subscriber-facing host via blockhost-network-hook (COMMON_INTERFACE.md §6a).
- * In broker/manual modes this is a pass-through; in onion mode it creates
- * a hidden service and pushes the .onion into the VM. See facts/ENGINE_INTERFACE.md §13.
- * Throws on any failure so the caller can decide whether to fall back.
+ * Resolve the subscriber-facing public address for a VM via blockhost-network-hook.
+ * The dispatcher reads vm-db.network_mode and asks the active plugin. The engine
+ * is mode-agnostic — no fallback. See facts/NETWORK_INTERFACE.md §7.1 and
+ * facts/ENGINE_INTERFACE.md §13.
  */
-function getConnectionEndpoint(vmName: string, bridgeIp: string, mode: string): string {
-  const result = spawnSync("blockhost-network-hook", ["resolve", vmName, bridgeIp, mode], {
+function networkHookPublicAddress(vmName: string): string {
+  const result = spawnSync("blockhost-network-hook", ["public-address", vmName], {
     encoding: "utf8",
     timeout: 120_000,
   });
   if (result.status !== 0) {
     const errMsg = (result.stderr || result.stdout || "").trim();
-    throw new Error(`blockhost-network-hook resolve failed: ${errMsg || `exit ${result.status}`}`);
+    throw new Error(`blockhost-network-hook public-address failed: ${errMsg || `exit ${result.status}`}`);
   }
   const host = result.stdout.trim();
   if (!host) {
-    throw new Error("blockhost-network-hook resolve returned empty host");
+    throw new Error("blockhost-network-hook public-address returned empty host");
   }
   return host;
 }
 
 /**
- * Release network resources for a destroyed VM via blockhost-network-hook.
- * Onion mode removes the hidden service; broker/manual modes are no-ops.
+ * Push mode-specific configuration into the VM via blockhost-network-hook.
+ * Idempotent. Best-effort — engines record success/failure on the VM record
+ * and let the reconciler retry on next cycle. See facts/NETWORK_INTERFACE.md §7.2.
  */
-function networkHookCleanup(vmName: string, mode: string): void {
-  const result = spawnSync("blockhost-network-hook", ["cleanup", vmName, mode], {
+function networkHookPushVmConfig(vmName: string): { ok: boolean; error?: string } {
+  const result = spawnSync("blockhost-network-hook", ["push-vm-config", vmName], {
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  if (result.status === 0) {
+    return { ok: true };
+  }
+  const errMsg = (result.stderr || result.stdout || "").trim();
+  return { ok: false, error: errMsg || `exit ${result.status}` };
+}
+
+/**
+ * Release per-VM network resources (host- and guest-side) via blockhost-network-hook.
+ * Called before vm-destroy so guest-side reversal can run while the VM is still up.
+ * See facts/NETWORK_INTERFACE.md §7.3.
+ */
+function networkHookCleanup(vmName: string): void {
+  const result = spawnSync("blockhost-network-hook", ["cleanup", vmName], {
     encoding: "utf8",
     timeout: 60_000,
   });
@@ -253,6 +270,26 @@ function networkHookCleanup(vmName: string, mode: string): void {
     const errMsg = (result.stderr || result.stdout || "").trim();
     throw new Error(`blockhost-network-hook cleanup failed: ${errMsg || `exit ${result.status}`}`);
   }
+}
+
+/**
+ * Persist field updates to a VM record via blockhost-vmdb update-fields.
+ * Routes through common's lockfile per facts/COMMON_INTERFACE.md §2.
+ */
+function updateVmFields(vmName: string, fields: Record<string, unknown>): boolean {
+  const result = spawnSync(
+    "blockhost-vmdb",
+    ["update-fields", vmName, "--fields", JSON.stringify(fields)],
+    { encoding: "utf8", timeout: 10_000 },
+  );
+  if (result.status === 0) {
+    return true;
+  }
+  const errMsg = (result.stderr || result.stdout || "").trim();
+  console.error(
+    `[WARN] update-fields failed for ${vmName}: ${errMsg || `exit ${result.status}`}`,
+  );
+  return false;
 }
 
 /**
@@ -332,20 +369,19 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
   // VM is already registered in vms.json by the provisioner — see
   // facts/PROVISIONER_INTERFACE.md §2 (vm-create / Database side effects).
 
-  // Step 4a: Resolve subscriber-facing host via network hook.
-  // Called unconditionally: in onion mode the hook has side effects (creating
-  // the hidden service and pushing the .onion into the VM) that must run
-  // regardless of whether the user signature is present.
-  const networkMode = getNetworkMode();
+  // Step 4a: Resolve subscriber-facing public address via blockhost-network-hook.
+  // Engine is mode-agnostic: the dispatcher reads vm-db.network_mode and asks
+  // the active plugin. No fallback — bad data baked into an NFT is worse than
+  // a failed handler that can be re-driven manually.
   let host: string;
   try {
-    host = getConnectionEndpoint(vmName, summary.ip, networkMode);
-    console.log(`[OK] Connection endpoint (mode=${networkMode}): ${host}`);
+    host = networkHookPublicAddress(vmName);
+    console.log(`[OK] Public address: ${host}`);
   } catch (err) {
-    const fallback = summary.ipv6 || summary.ip;
-    console.warn(`[WARN] network_hook failed for ${vmName}: ${err}`);
-    console.warn(`[WARN] Falling back to provisioner bridge address: ${fallback}`);
-    host = fallback;
+    console.error(`[ERROR] Could not resolve public address for ${vmName}: ${err}`);
+    console.error(`[ERROR] Aborting handler — NFT will not be minted with garbage data`);
+    console.log("==========================================\n");
+    return;
   }
 
   // Step 4b: Encrypt connection details using user's signature
@@ -391,7 +427,19 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
 
   console.log(`[INFO] Minted token ID: ${actualTokenId}`);
 
-  // Step 6: Call update-gecos with actual token ID
+  // Step 6: Push mode-specific config into the VM. Idempotent and best-effort —
+  // the reconciler retries if the guest agent isn't ready yet. Persist the
+  // outcome so the reconciler knows whether to retry.
+  const pushResult = networkHookPushVmConfig(vmName);
+  if (pushResult.ok) {
+    console.log(`[OK] push-vm-config succeeded for ${vmName}`);
+    updateVmFields(vmName, { network_config_synced: true });
+  } else {
+    console.warn(`[WARN] push-vm-config failed for ${vmName}: ${pushResult.error}`);
+    updateVmFields(vmName, { network_config_synced: false });
+  }
+
+  // Step 7: Call update-gecos with actual token ID
   const updateGecosCmd = getCommand("update-gecos");
   const gecosResult = spawnSync(updateGecosCmd, [vmName, event.subscriber, "--nft-id", String(actualTokenId)], {
     timeout: 30_000,
@@ -405,7 +453,7 @@ export async function handleSubscriptionCreated(event: SubscriptionCreatedEvent,
     console.log(`[OK] GECOS updated for ${vmName} with token ${actualTokenId}`);
   }
 
-  // Step 7: Mark NFT minted in DB (awaited, not fire-and-forget)
+  // Step 8: Mark NFT minted in DB (awaited, not fire-and-forget)
   await markNftMinted(actualTokenId, vmName);
 
   console.log("==========================================\n");
@@ -488,21 +536,24 @@ export async function handleSubscriptionCancelled(event: SubscriptionCancelledEv
   console.log(`Plan ID: ${event.planId}`);
   console.log(`Subscriber: ${event.subscriber}`);
   console.log("--------------------------------------------");
-  console.log(`Destroying VM: ${vmName}`);
 
+  // Step 1: Release per-VM network resources BEFORE destroying the VM so the
+  // plugin can do guest-side reversal while the VM is still running. See
+  // facts/ENGINE_INTERFACE.md §13.
+  try {
+    networkHookCleanup(vmName);
+    console.log(`[OK] Network cleanup complete for ${vmName}`);
+  } catch (err) {
+    console.warn(`[WARN] blockhost-network-hook cleanup failed for ${vmName}: ${err}`);
+  }
+
+  // Step 2: Destroy the VM. Provisioner calls mark_destroyed itself per
+  // facts/PROVISIONER_INTERFACE.md §2.
+  console.log(`Destroying VM: ${vmName}`);
   const { success, output } = await destroyVm(vmName);
 
   if (success) {
     console.log(`[OK] ${output}`);
-
-    // Release network resources (hidden service for onion mode; no-op otherwise).
-    const networkMode = getNetworkMode();
-    try {
-      networkHookCleanup(vmName, networkMode);
-      console.log(`[OK] Network cleanup complete (mode=${networkMode})`);
-    } catch (err) {
-      console.warn(`[WARN] network_hook cleanup failed for ${vmName}: ${err}`);
-    }
   } else {
     console.error(`[ERROR] Failed to destroy VM: ${output}`);
   }

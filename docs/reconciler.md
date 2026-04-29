@@ -15,3 +15,7 @@ When an NFT is transferred to a new wallet, the reconciler detects the ownership
 3. If the GECOS update fails (VM stopped, guest agent unresponsive), retries on the next cycle
 
 This is the sole mechanism for propagating NFT ownership changes to VMs. The PAM module authenticates against the VM's GECOS field, not the blockchain directly.
+
+## Network Config Retry
+
+For every active VM where `network_config_synced !== true`, the reconciler invokes `blockhost-network-hook push-vm-config <vm>`. On success, writes `network_config_synced = true` via `blockhost-vmdb update-fields`. The plugin command is idempotent, so calling it every cycle is safe. This catches VMs whose initial `push-vm-config` (run by `handleSubscriptionCreated` after mint) failed because the guest agent wasn't ready yet.
